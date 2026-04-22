@@ -595,6 +595,14 @@ const empty = computed(() => events.value.length === 0 && !loading.value)
                 <div v-if="getDimensionString(selected, 'region')">region={{ getDimensionString(selected, 'region') }}</div>
               </div>
             </div>
+
+            <div class="rounded-xl bg-gray-50 p-4 dark:bg-dark-900">
+              <div class="text-xs font-bold uppercase tracking-wider text-gray-400">{{ t('admin.ops.alertEvents.detail.delivery') }}</div>
+              <div class="mt-1 space-y-1 text-sm text-gray-900 dark:text-white">
+                <div>{{ t('admin.ops.alertEvents.table.email') }}: {{ selected.email_sent ? t('admin.ops.alertEvents.table.emailSent') : t('admin.ops.alertEvents.table.emailIgnored') }}</div>
+                <div>{{ t('admin.ops.alertEvents.table.webhook') }}: {{ selected.webhook_sent ? t('admin.ops.alertEvents.table.webhookSent') : t('admin.ops.alertEvents.table.webhookIgnored') }}</div>
+              </div>
+            </div>
           </div>
 
 
@@ -645,4 +653,3 @@ const empty = computed(() => events.value.length === 0 && !loading.value)
     </BaseDialog>
   </div>
 </template>
-

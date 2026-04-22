@@ -757,6 +757,7 @@ export interface AlertRule {
   severity: OpsSeverity
   cooldown_minutes: number
   notify_email: boolean
+  notify_webhook: boolean
   filters?: Record<string, any>
   created_at?: string
   updated_at?: string
@@ -776,7 +777,13 @@ export interface AlertEvent {
   fired_at: string
   resolved_at?: string | null
   email_sent: boolean
+  webhook_sent: boolean
   created_at: string
+}
+
+export interface WebhookEndpoint {
+  name: string
+  url: string
 }
 
 export interface EmailNotificationConfig {
@@ -787,6 +794,13 @@ export interface EmailNotificationConfig {
     rate_limit_per_hour: number
     batching_window_seconds: number
     include_resolved_alerts: boolean
+  }
+  webhook: {
+    enabled: boolean
+    endpoints: WebhookEndpoint[]
+    min_severity: AlertSeverity | ''
+    rate_limit_per_hour: number
+    timeout_seconds: number
   }
   report: {
     enabled: boolean

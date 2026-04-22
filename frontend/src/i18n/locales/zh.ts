@@ -4038,7 +4038,7 @@ export default {
       },
       alertEvents: {
         title: '告警事件',
-        description: '最近的告警触发/恢复记录（仅邮件通知）',
+        description: '最近的告警触发/恢复记录（支持邮件与 Webhook 通知）',
         loading: '加载中...',
         empty: '暂无告警事件',
         loadFailed: '加载告警事件失败',
@@ -4064,6 +4064,7 @@ export default {
           resolvedAt: '解决时间',
           ruleId: '规则 ID',
           dimensions: '维度信息',
+          delivery: '通知投递',
           historyTitle: '历史记录',
           historyHint: '同一规则 + 相同维度的最近事件',
           historyLoading: '加载历史中...',
@@ -4080,13 +4081,16 @@ export default {
           metric: '指标 / 阈值',
           dimensions: '维度',
           email: '邮件已发送',
+          webhook: 'Webhook 已发送',
           emailSent: '已发送',
-          emailIgnored: '已忽略'
+          emailIgnored: '已忽略',
+          webhookSent: '已发送',
+          webhookIgnored: '已忽略'
         }
       },
       alertRules: {
         title: '告警规则',
-        description: '创建与管理系统阈值告警（仅邮件通知）',
+        description: '创建与管理系统阈值告警（支持邮件与 Webhook 通知）',
         loading: '加载中...',
         empty: '暂无告警规则',
         loadFailed: '加载告警规则失败',
@@ -4165,7 +4169,8 @@ export default {
           sustained: '连续样本数（每分钟）',
           cooldown: '冷却期（分钟）',
           enabled: '启用',
-          notifyEmail: '发送邮件通知'
+          notifyEmail: '发送邮件通知',
+          notifyWebhook: '发送 Webhook 通知'
         },
         validation: {
           title: '请先修正以下问题',
@@ -4291,6 +4296,16 @@ export default {
         alertConfig: '预警配置',
         enableAlert: '开启预警',
         alertRecipients: '预警接收邮箱',
+        webhookConfig: 'Webhook 告警配置',
+        enableWebhook: '开启 Webhook 告警',
+        webhookEndpoints: 'Webhook 端点',
+        webhookEndpointsEmpty: '暂无 Webhook 端点，请先添加一个回调地址。',
+        webhookEndpointName: '端点名称',
+        webhookEndpointNamePlaceholder: '例如：飞书机器人 / 内部告警网关',
+        webhookEndpointURL: 'Webhook 地址',
+        webhookRateLimitPerHour: '每小时限额',
+        webhookTimeoutSeconds: '超时时间（秒）',
+        webhookHint: '系统会在告警触发时向每个端点发送 `POST` JSON，请确保目标服务可接收该格式。',
         emailPlaceholder: '输入邮箱地址',
         recipientsHint: '若为空，系统将使用第一个管理员邮箱作为默认收件人',
         minSeverity: '最低级别',
@@ -4352,7 +4367,11 @@ export default {
           slaMinPercentRange: 'SLA最低百分比必须在0-100之间',
           ttftP99MaxRange: 'TTFT P99最大值必须大于等于0',
           requestErrorRateMaxRange: '请求错误率最大值必须在0-100之间',
-          upstreamErrorRateMaxRange: '上游错误率最大值必须在0-100之间'
+          upstreamErrorRateMaxRange: '上游错误率最大值必须在0-100之间',
+          webhookEndpointsRequired: '已启用 Webhook 告警，但未配置任何端点',
+          invalidWebhookEndpoint: '存在未填写名称或 URL 不合法的 Webhook 端点',
+          webhookRateLimitRange: 'Webhook 每小时限额必须为大于等于 0 的数字',
+          webhookTimeoutRange: 'Webhook 超时时间必须在 1 到 300 秒之间'
         }
       },
       concurrency: {

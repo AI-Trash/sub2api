@@ -6,7 +6,14 @@ import { opsAPI } from '@/api/admin/ops'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
 import Toggle from '@/components/common/Toggle.vue'
-import type { OpsAlertRuntimeSettings, EmailNotificationConfig, AlertSeverity, OpsAdvancedSettings, OpsMetricThresholds } from '../types'
+import type {
+  OpsAlertRuntimeSettings,
+  EmailNotificationConfig,
+  AlertSeverity,
+  OpsAdvancedSettings,
+  OpsMetricThresholds,
+  WebhookEndpoint
+} from '../types'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -49,6 +56,15 @@ async function loadAllSettings() {
     ])
     runtimeSettings.value = runtime
     emailConfig.value = email
+    if (!emailConfig.value.webhook) {
+      emailConfig.value.webhook = {
+        enabled: false,
+        endpoints: [],
+        min_severity: '',
+        rate_limit_per_hour: 0,
+        timeout_seconds: 10
+      }
+    }
     advancedSettings.value = advanced
     // 如果后端返回了阈值，使用后端的值；否则保持默认值
     if (thresholds && Object.keys(thresholds).length > 0) {
@@ -91,6 +107,15 @@ function isValidEmailAddress(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
 
+function isValidWebhookURL(raw: string): boolean {
+  try {
+    const parsed = new URL(raw.trim())
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:'
+  } catch {
+    return false
+  }
+}
+
 // 添加收件人
 function addRecipient(target: 'alert' | 'report') {
   if (!emailConfig.value) return
@@ -119,6 +144,22 @@ function removeRecipient(target: 'alert' | 'report', email: string) {
   if (idx >= 0) list.splice(idx, 1)
 }
 
+function addWebhookEndpoint() {
+  if (!emailConfig.value) return
+  if (!Array.isArray(emailConfig.value.webhook.endpoints)) {
+    emailConfig.value.webhook.endpoints = []
+  }
+  emailConfig.value.webhook.endpoints.push({
+    name: '',
+    url: ''
+  } satisfies WebhookEndpoint)
+}
+
+function removeWebhookEndpoint(index: number) {
+  if (!emailConfig.value?.webhook?.endpoints) return
+  emailConfig.value.webhook.endpoints.splice(index, 1)
+}
+
 // 验证
 const validation = computed(() => {
   const errors: string[] = []
@@ -132,6 +173,38 @@ const validation = computed(() => {
   }
 
   // 邮件配置: 启用但无收件人时不阻断保存, 保存时会自动禁用
+  if (emailConfig.value) {
+    if (emailConfig.value.webhook.enabled) {
+      if (
+        !Array.isArray(emailConfig.value.webhook.endpoints) ||
+        emailConfig.value.webhook.endpoints.length === 0
+      ) {
+        errors.push(t('admin.ops.settings.validation.webhookEndpointsRequired'))
+      }
+
+      if (
+        !Number.isFinite(emailConfig.value.webhook.rate_limit_per_hour) ||
+        emailConfig.value.webhook.rate_limit_per_hour < 0
+      ) {
+        errors.push(t('admin.ops.settings.validation.webhookRateLimitRange'))
+      }
+
+      if (
+        !Number.isFinite(emailConfig.value.webhook.timeout_seconds) ||
+        emailConfig.value.webhook.timeout_seconds < 1 ||
+        emailConfig.value.webhook.timeout_seconds > 300
+      ) {
+        errors.push(t('admin.ops.settings.validation.webhookTimeoutRange'))
+      }
+
+      const invalidEndpoints = (emailConfig.value.webhook.endpoints || []).filter((endpoint) => {
+        return !endpoint.name.trim() || !isValidWebhookURL(endpoint.url)
+      })
+      if (invalidEndpoints.length > 0) {
+        errors.push(t('admin.ops.settings.validation.invalidWebhookEndpoint'))
+      }
+    }
+  }
 
   // 验证高级设置
   if (advancedSettings.value) {
@@ -177,6 +250,15 @@ async function saveAllSettings() {
     if (emailConfig.value) {
       if (emailConfig.value.alert.enabled && emailConfig.value.alert.recipients.length === 0) {
         emailConfig.value.alert.enabled = false
+      }
+      emailConfig.value.webhook.endpoints = (emailConfig.value.webhook.endpoints || [])
+        .map((endpoint) => ({
+          name: endpoint.name.trim(),
+          url: endpoint.url.trim()
+        }))
+        .filter((endpoint) => endpoint.name && endpoint.url)
+      if (emailConfig.value.webhook.enabled && emailConfig.value.webhook.endpoints.length === 0) {
+        emailConfig.value.webhook.enabled = false
       }
       if (emailConfig.value.report.enabled && emailConfig.value.report.recipients.length === 0) {
         emailConfig.value.report.enabled = false
@@ -275,6 +357,80 @@ async function saveAllSettings() {
           <div v-if="emailConfig.alert.enabled">
             <label class="input-label">{{ t('admin.ops.settings.minSeverity') }}</label>
             <Select v-model="emailConfig.alert.min_severity" :options="severityOptions" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Webhook 告警配置 -->
+      <div class="rounded-2xl bg-gray-50 p-4 dark:bg-dark-700/50">
+        <h4 class="mb-3 text-sm font-semibold text-gray-900 dark:text-white">{{ t('admin.ops.settings.webhookConfig') }}</h4>
+
+        <div class="space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <label class="font-medium text-gray-900 dark:text-white">{{ t('admin.ops.settings.enableWebhook') }}</label>
+            </div>
+            <Toggle v-model="emailConfig.webhook.enabled" />
+          </div>
+
+          <div v-if="emailConfig.webhook.enabled" class="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div>
+              <label class="input-label">{{ t('admin.ops.settings.minSeverity') }}</label>
+              <Select v-model="emailConfig.webhook.min_severity" :options="severityOptions" />
+            </div>
+
+            <div>
+              <label class="input-label">{{ t('admin.ops.settings.webhookRateLimitPerHour') }}</label>
+              <input v-model.number="emailConfig.webhook.rate_limit_per_hour" type="number" min="0" max="100000" class="input" />
+            </div>
+
+            <div>
+              <label class="input-label">{{ t('admin.ops.settings.webhookTimeoutSeconds') }}</label>
+              <input v-model.number="emailConfig.webhook.timeout_seconds" type="number" min="1" max="300" class="input" />
+            </div>
+          </div>
+
+          <div v-if="emailConfig.webhook.enabled" class="space-y-3">
+            <div class="flex items-center justify-between gap-3">
+              <label class="input-label mb-0">{{ t('admin.ops.settings.webhookEndpoints') }}</label>
+              <button class="btn btn-secondary whitespace-nowrap" type="button" @click="addWebhookEndpoint">
+                {{ t('common.add') }}
+              </button>
+            </div>
+
+            <div v-if="!(emailConfig.webhook.endpoints || []).length" class="rounded-xl border border-dashed border-gray-200 px-4 py-6 text-sm text-gray-500 dark:border-dark-600 dark:text-gray-400">
+              {{ t('admin.ops.settings.webhookEndpointsEmpty') }}
+            </div>
+
+            <div v-else class="space-y-3">
+              <div
+                v-for="(endpoint, index) in emailConfig.webhook.endpoints"
+                :key="`${index}-${endpoint.name}-${endpoint.url}`"
+                class="rounded-xl border border-gray-200 bg-white p-4 dark:border-dark-600 dark:bg-dark-800"
+              >
+                <div class="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)_auto]">
+                  <div>
+                    <label class="input-label">{{ t('admin.ops.settings.webhookEndpointName') }}</label>
+                    <input v-model="endpoint.name" type="text" class="input" :placeholder="t('admin.ops.settings.webhookEndpointNamePlaceholder')" />
+                  </div>
+
+                  <div>
+                    <label class="input-label">{{ t('admin.ops.settings.webhookEndpointURL') }}</label>
+                    <input v-model="endpoint.url" type="url" class="input" placeholder="https://example.com/hooks/ops" />
+                  </div>
+
+                  <div class="flex items-end">
+                    <button class="btn btn-danger whitespace-nowrap" type="button" @click="removeWebhookEndpoint(index)">
+                      {{ t('common.delete') }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <p class="text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.ops.settings.webhookHint') }}
+            </p>
           </div>
         </div>
       </div>

@@ -1,9 +1,13 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"math"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
@@ -48,7 +52,9 @@ type OpsAlertEvaluatorService struct {
 	mu         sync.Mutex
 	ruleStates map[int64]*opsAlertRuleState
 
-	emailLimiter *slidingWindowLimiter
+	emailLimiter   *slidingWindowLimiter
+	webhookLimiter *slidingWindowLimiter
+	webhookClient  *http.Client
 
 	skipLogMu sync.Mutex
 	skipLogAt time.Time
@@ -69,14 +75,16 @@ func NewOpsAlertEvaluatorService(
 	cfg *config.Config,
 ) *OpsAlertEvaluatorService {
 	return &OpsAlertEvaluatorService{
-		opsService:   opsService,
-		opsRepo:      opsRepo,
-		emailService: emailService,
-		redisClient:  redisClient,
-		cfg:          cfg,
-		instanceID:   uuid.NewString(),
-		ruleStates:   map[int64]*opsAlertRuleState{},
-		emailLimiter: newSlidingWindowLimiter(0, time.Hour),
+		opsService:     opsService,
+		opsRepo:        opsRepo,
+		emailService:   emailService,
+		redisClient:    redisClient,
+		cfg:            cfg,
+		instanceID:     uuid.NewString(),
+		ruleStates:     map[int64]*opsAlertRuleState{},
+		emailLimiter:   newSlidingWindowLimiter(0, time.Hour),
+		webhookLimiter: newSlidingWindowLimiter(0, time.Hour),
+		webhookClient:  http.DefaultClient,
 	}
 }
 
@@ -196,6 +204,7 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 	eventsCreated := 0
 	eventsResolved := 0
 	emailsSent := 0
+	webhooksSent := 0
 
 	now := time.Now().UTC()
 	safeEnd := now.Truncate(time.Minute)
@@ -292,6 +301,9 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 				if s.maybeSendAlertEmail(ctx, runtimeCfg, rule, created) {
 					emailsSent++
 				}
+				if s.maybeSendAlertWebhook(ctx, runtimeCfg, rule, created) {
+					webhooksSent++
+				}
 			}
 			continue
 		}
@@ -307,7 +319,16 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 		}
 	}
 
-	result := truncateString(fmt.Sprintf("rules=%d enabled=%d evaluated=%d created=%d resolved=%d emails_sent=%d", rulesTotal, rulesEnabled, rulesEvaluated, eventsCreated, eventsResolved, emailsSent), 2048)
+	result := truncateString(fmt.Sprintf(
+		"rules=%d enabled=%d evaluated=%d created=%d resolved=%d emails_sent=%d webhooks_sent=%d",
+		rulesTotal,
+		rulesEnabled,
+		rulesEvaluated,
+		eventsCreated,
+		eventsResolved,
+		emailsSent,
+		webhooksSent,
+	), 2048)
 	s.recordHeartbeatSuccess(runAt, time.Since(startedAt), result)
 }
 
@@ -699,6 +720,103 @@ func (s *OpsAlertEvaluatorService) maybeSendAlertEmail(ctx context.Context, runt
 	return anySent
 }
 
+func (s *OpsAlertEvaluatorService) maybeSendAlertWebhook(ctx context.Context, runtimeCfg *OpsAlertRuntimeSettings, rule *OpsAlertRule, event *OpsAlertEvent) bool {
+	if s == nil || s.opsService == nil || event == nil || rule == nil {
+		return false
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if event.WebhookSent {
+		return false
+	}
+	if !rule.NotifyWebhook {
+		return false
+	}
+
+	notificationCfg, err := s.opsService.GetEmailNotificationConfig(ctx)
+	if err != nil || notificationCfg == nil || !notificationCfg.Webhook.Enabled {
+		return false
+	}
+	if len(notificationCfg.Webhook.Endpoints) == 0 {
+		return false
+	}
+	if !shouldSendOpsAlertEmailByMinSeverity(strings.TrimSpace(notificationCfg.Webhook.MinSeverity), strings.TrimSpace(rule.Severity)) {
+		return false
+	}
+
+	if runtimeCfg != nil && runtimeCfg.Silencing.Enabled {
+		if isOpsAlertSilenced(time.Now().UTC(), rule, event, runtimeCfg.Silencing) {
+			return false
+		}
+	}
+
+	s.webhookLimiter.SetLimit(notificationCfg.Webhook.RateLimitPerHour)
+
+	client := s.webhookClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+
+	timeout := time.Duration(notificationCfg.Webhook.TimeoutSeconds) * time.Second
+	payload, err := buildOpsAlertWebhookPayload(rule, event)
+	if err != nil {
+		return false
+	}
+
+	anySent := false
+	for _, endpoint := range notificationCfg.Webhook.Endpoints {
+		targetURL := strings.TrimSpace(endpoint.URL)
+		if targetURL == "" {
+			continue
+		}
+		if !s.webhookLimiter.Allow(time.Now().UTC()) {
+			continue
+		}
+
+		reqCtx := ctx
+		var cancel context.CancelFunc
+		if timeout > 0 {
+			reqCtx, cancel = context.WithTimeout(ctx, timeout)
+		}
+
+		req, reqErr := http.NewRequestWithContext(reqCtx, http.MethodPost, targetURL, bytes.NewReader(payload))
+		if reqErr != nil {
+			logger.LegacyPrintf("service.ops_alert_evaluator", "[OpsAlertEvaluator] build webhook request failed (event=%d url=%q): %v", event.ID, targetURL, reqErr)
+			if cancel != nil {
+				cancel()
+			}
+			continue
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("User-Agent", "sub2api-ops-webhook/1.0")
+
+		resp, doErr := client.Do(req)
+		if cancel != nil {
+			cancel()
+		}
+		if doErr != nil {
+			logger.LegacyPrintf("service.ops_alert_evaluator", "[OpsAlertEvaluator] webhook request failed (event=%d url=%q): %v", event.ID, targetURL, doErr)
+			continue
+		}
+
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		_ = resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			logger.LegacyPrintf("service.ops_alert_evaluator", "[OpsAlertEvaluator] webhook returned non-2xx (event=%d url=%q status=%d)", event.ID, targetURL, resp.StatusCode)
+			continue
+		}
+
+		anySent = true
+	}
+
+	if anySent {
+		_ = s.opsRepo.UpdateAlertEventWebhookSent(context.Background(), event.ID, true)
+	}
+	return anySent
+}
+
 func buildOpsAlertEmailBody(rule *OpsAlertRule, event *OpsAlertEvent) string {
 	if rule == nil || event == nil {
 		return ""
@@ -730,6 +848,87 @@ func buildOpsAlertEmailBody(rule *OpsAlertRule, event *OpsAlertEvent) string {
 		event.FiredAt.Format(time.RFC3339),
 		htmlEscape(event.Description),
 	)
+}
+
+func buildOpsAlertWebhookPayload(rule *OpsAlertRule, event *OpsAlertEvent) ([]byte, error) {
+	if rule == nil || event == nil {
+		return nil, fmt.Errorf("rule and event are required")
+	}
+
+	type webhookRule struct {
+		ID               int64          `json:"id"`
+		Name             string         `json:"name"`
+		Description      string         `json:"description"`
+		Severity         string         `json:"severity"`
+		MetricType       string         `json:"metric_type"`
+		Operator         string         `json:"operator"`
+		Threshold        float64        `json:"threshold"`
+		WindowMinutes    int            `json:"window_minutes"`
+		SustainedMinutes int            `json:"sustained_minutes"`
+		CooldownMinutes  int            `json:"cooldown_minutes"`
+		Filters          map[string]any `json:"filters,omitempty"`
+	}
+	type webhookEvent struct {
+		ID             int64          `json:"id"`
+		RuleID         int64          `json:"rule_id"`
+		Severity       string         `json:"severity"`
+		Status         string         `json:"status"`
+		Title          string         `json:"title"`
+		Description    string         `json:"description"`
+		MetricValue    *float64       `json:"metric_value,omitempty"`
+		ThresholdValue *float64       `json:"threshold_value,omitempty"`
+		Dimensions     map[string]any `json:"dimensions,omitempty"`
+		FiredAt        string         `json:"fired_at"`
+		ResolvedAt     *string        `json:"resolved_at,omitempty"`
+		CreatedAt      string         `json:"created_at"`
+	}
+
+	var resolvedAt *string
+	if event.ResolvedAt != nil {
+		v := event.ResolvedAt.UTC().Format(time.RFC3339)
+		resolvedAt = &v
+	}
+
+	payload := struct {
+		Source string       `json:"source"`
+		Type   string       `json:"type"`
+		SentAt string       `json:"sent_at"`
+		Rule   webhookRule  `json:"rule"`
+		Event  webhookEvent `json:"event"`
+	}{
+		Source: "sub2api",
+		Type:   "ops_alert",
+		SentAt: time.Now().UTC().Format(time.RFC3339),
+		Rule: webhookRule{
+			ID:               rule.ID,
+			Name:             strings.TrimSpace(rule.Name),
+			Description:      strings.TrimSpace(rule.Description),
+			Severity:         strings.TrimSpace(rule.Severity),
+			MetricType:       strings.TrimSpace(rule.MetricType),
+			Operator:         strings.TrimSpace(rule.Operator),
+			Threshold:        rule.Threshold,
+			WindowMinutes:    rule.WindowMinutes,
+			SustainedMinutes: rule.SustainedMinutes,
+			CooldownMinutes:  rule.CooldownMinutes,
+			Filters:          rule.Filters,
+		},
+		Event: webhookEvent{
+			ID:             event.ID,
+			RuleID:         event.RuleID,
+			Severity:       strings.TrimSpace(event.Severity),
+			Status:         strings.TrimSpace(event.Status),
+			Title:          strings.TrimSpace(event.Title),
+			Description:    strings.TrimSpace(event.Description),
+			MetricValue:    event.MetricValue,
+			ThresholdValue: event.ThresholdValue,
+			Dimensions:     event.Dimensions,
+			FiredAt:        event.FiredAt.UTC().Format(time.RFC3339),
+			ResolvedAt:     resolvedAt,
+			CreatedAt:      event.CreatedAt.UTC().Format(time.RFC3339),
+		},
+	}
+
+	return json.Marshal(payload)
 }
 
 func shouldSendOpsAlertEmailByMinSeverity(minSeverity string, ruleSeverity string) bool {

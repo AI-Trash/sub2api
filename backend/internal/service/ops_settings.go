@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 )
 
 const (
@@ -74,6 +77,16 @@ func (s *OpsService) UpdateEmailNotificationConfig(ctx context.Context, req *Ops
 		cfg.Alert.IncludeResolvedAlerts = req.Alert.IncludeResolvedAlerts
 	}
 
+	if req.Webhook != nil {
+		cfg.Webhook.Enabled = req.Webhook.Enabled
+		if req.Webhook.Endpoints != nil {
+			cfg.Webhook.Endpoints = req.Webhook.Endpoints
+		}
+		cfg.Webhook.MinSeverity = strings.TrimSpace(req.Webhook.MinSeverity)
+		cfg.Webhook.RateLimitPerHour = req.Webhook.RateLimitPerHour
+		cfg.Webhook.TimeoutSeconds = req.Webhook.TimeoutSeconds
+	}
+
 	if req.Report != nil {
 		cfg.Report.Enabled = req.Report.Enabled
 		if req.Report.Recipients != nil {
@@ -91,7 +104,8 @@ func (s *OpsService) UpdateEmailNotificationConfig(ctx context.Context, req *Ops
 		cfg.Report.AccountHealthErrorRateThreshold = req.Report.AccountHealthErrorRateThreshold
 	}
 
-	if err := validateOpsEmailNotificationConfig(cfg); err != nil {
+	allowInsecureHTTP := s.cfg != nil && s.cfg.Security.URLAllowlist.AllowInsecureHTTP
+	if err := validateOpsEmailNotificationConfig(cfg, allowInsecureHTTP); err != nil {
 		return nil, err
 	}
 
@@ -115,6 +129,13 @@ func defaultOpsEmailNotificationConfig() *OpsEmailNotificationConfig {
 			RateLimitPerHour:      0,
 			BatchingWindowSeconds: 0,
 			IncludeResolvedAlerts: false,
+		},
+		Webhook: OpsWebhookAlertConfig{
+			Enabled:          false,
+			Endpoints:        []OpsWebhookEndpoint{},
+			MinSeverity:      "",
+			RateLimitPerHour: 0,
+			TimeoutSeconds:   10,
 		},
 		Report: OpsEmailReportConfig{
 			Enabled:                         false,
@@ -140,15 +161,26 @@ func normalizeOpsEmailNotificationConfig(cfg *OpsEmailNotificationConfig) {
 	if cfg.Alert.Recipients == nil {
 		cfg.Alert.Recipients = []string{}
 	}
+	if cfg.Webhook.Endpoints == nil {
+		cfg.Webhook.Endpoints = []OpsWebhookEndpoint{}
+	}
 	if cfg.Report.Recipients == nil {
 		cfg.Report.Recipients = []string{}
 	}
 
 	cfg.Alert.MinSeverity = strings.TrimSpace(cfg.Alert.MinSeverity)
+	cfg.Webhook.MinSeverity = strings.TrimSpace(cfg.Webhook.MinSeverity)
 	cfg.Report.DailySummarySchedule = strings.TrimSpace(cfg.Report.DailySummarySchedule)
 	cfg.Report.WeeklySummarySchedule = strings.TrimSpace(cfg.Report.WeeklySummarySchedule)
 	cfg.Report.ErrorDigestSchedule = strings.TrimSpace(cfg.Report.ErrorDigestSchedule)
 	cfg.Report.AccountHealthSchedule = strings.TrimSpace(cfg.Report.AccountHealthSchedule)
+	if cfg.Webhook.TimeoutSeconds <= 0 {
+		cfg.Webhook.TimeoutSeconds = 10
+	}
+	for i := range cfg.Webhook.Endpoints {
+		cfg.Webhook.Endpoints[i].Name = strings.TrimSpace(cfg.Webhook.Endpoints[i].Name)
+		cfg.Webhook.Endpoints[i].URL = strings.TrimSpace(cfg.Webhook.Endpoints[i].URL)
+	}
 
 	// Fill missing schedules with defaults to avoid breaking cron logic if clients send empty strings.
 	if cfg.Report.DailySummarySchedule == "" {
@@ -165,7 +197,7 @@ func normalizeOpsEmailNotificationConfig(cfg *OpsEmailNotificationConfig) {
 	}
 }
 
-func validateOpsEmailNotificationConfig(cfg *OpsEmailNotificationConfig) error {
+func validateOpsEmailNotificationConfig(cfg *OpsEmailNotificationConfig, allowInsecureHTTP bool) error {
 	if cfg == nil {
 		return errors.New("invalid config")
 	}
@@ -180,6 +212,26 @@ func validateOpsEmailNotificationConfig(cfg *OpsEmailNotificationConfig) error {
 	case "", "critical", "warning", "info":
 	default:
 		return errors.New("alert.min_severity must be one of: critical, warning, info, or empty")
+	}
+	if cfg.Webhook.RateLimitPerHour < 0 {
+		return errors.New("webhook.rate_limit_per_hour must be >= 0")
+	}
+	if cfg.Webhook.TimeoutSeconds < 1 || cfg.Webhook.TimeoutSeconds > 300 {
+		return errors.New("webhook.timeout_seconds must be between 1 and 300")
+	}
+	switch strings.TrimSpace(cfg.Webhook.MinSeverity) {
+	case "", "critical", "warning", "info":
+	default:
+		return errors.New("webhook.min_severity must be one of: critical, warning, info, or empty")
+	}
+	for i, endpoint := range cfg.Webhook.Endpoints {
+		name := strings.TrimSpace(endpoint.Name)
+		if name == "" {
+			return errors.New("webhook.endpoints[" + strconv.Itoa(i) + "].name is required")
+		}
+		if _, err := urlvalidator.ValidateURLFormat(endpoint.URL, allowInsecureHTTP); err != nil {
+			return errors.New("webhook.endpoints[" + strconv.Itoa(i) + "].url: " + err.Error())
+		}
 	}
 
 	if cfg.Report.ErrorDigestMinCount < 0 {

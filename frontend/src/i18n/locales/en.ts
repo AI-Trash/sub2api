@@ -3874,7 +3874,7 @@ export default {
       },
       alertEvents: {
         title: 'Alert Events',
-        description: 'Recent alert firing/resolution records (email-only)',
+        description: 'Recent alert firing/resolution records (email + webhook)',
         loading: 'Loading...',
         empty: 'No alert events',
         loadFailed: 'Failed to load alert events',
@@ -3900,6 +3900,7 @@ export default {
           resolvedAt: 'Resolved At',
           ruleId: 'Rule ID',
           dimensions: 'Dimensions',
+          delivery: 'Delivery',
           historyTitle: 'History',
           historyHint: 'Recent events with same rule + dimensions',
           historyLoading: 'Loading history...',
@@ -3916,13 +3917,16 @@ export default {
           metric: 'Metric / Threshold',
           dimensions: 'Dimensions',
           email: 'Email Sent',
+          webhook: 'Webhook Sent',
           emailSent: 'Sent',
-          emailIgnored: 'Ignored'
+          emailIgnored: 'Ignored',
+          webhookSent: 'Sent',
+          webhookIgnored: 'Ignored'
         }
       },
       alertRules: {
         title: 'Alert Rules',
-        description: 'Create and manage threshold-based system alerts (email-only)',
+        description: 'Create and manage threshold-based system alerts (email + webhook)',
         loading: 'Loading...',
         empty: 'No alert rules',
         loadFailed: 'Failed to load alert rules',
@@ -4001,7 +4005,8 @@ export default {
           sustained: 'Sustained (samples)',
           cooldown: 'Cooldown (minutes)',
           enabled: 'Enabled',
-          notifyEmail: 'Send email notifications'
+          notifyEmail: 'Send email notifications',
+          notifyWebhook: 'Send webhook notifications'
         },
         validation: {
           title: 'Please fix the following issues',
@@ -4127,6 +4132,16 @@ export default {
         alertConfig: 'Alert Configuration',
         enableAlert: 'Enable Alerts',
         alertRecipients: 'Alert Recipient Emails',
+        webhookConfig: 'Webhook Alert Configuration',
+        enableWebhook: 'Enable Webhook Alerts',
+        webhookEndpoints: 'Webhook Endpoints',
+        webhookEndpointsEmpty: 'No webhook endpoints configured yet. Add at least one callback URL.',
+        webhookEndpointName: 'Endpoint Name',
+        webhookEndpointNamePlaceholder: 'For example: Feishu bot / Internal alert gateway',
+        webhookEndpointURL: 'Webhook URL',
+        webhookRateLimitPerHour: 'Rate limit per hour',
+        webhookTimeoutSeconds: 'Timeout (seconds)',
+        webhookHint: 'Sub2API sends a JSON `POST` request to every configured endpoint when an alert fires.',
         emailPlaceholder: 'Enter email address',
         recipientsHint: 'If empty, the system will use the first admin email as default recipient',
         minSeverity: 'Minimum Severity',
@@ -4187,7 +4202,11 @@ export default {
           slaMinPercentRange: 'SLA minimum percentage must be between 0 and 100',
           ttftP99MaxRange: 'TTFT P99 maximum must be a number ≥ 0',
           requestErrorRateMaxRange: 'Request error rate maximum must be between 0 and 100',
-          upstreamErrorRateMaxRange: 'Upstream error rate maximum must be between 0 and 100'
+          upstreamErrorRateMaxRange: 'Upstream error rate maximum must be between 0 and 100',
+          webhookEndpointsRequired: 'Webhook alerts are enabled but no endpoints are configured',
+          invalidWebhookEndpoint: 'One or more webhook endpoints are missing a name or have an invalid URL',
+          webhookRateLimitRange: 'Webhook rate limit per hour must be a number ≥ 0',
+          webhookTimeoutRange: 'Webhook timeout must be between 1 and 300 seconds'
         }
       },
       concurrency: {
