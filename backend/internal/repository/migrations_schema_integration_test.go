@@ -87,6 +87,10 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 
 	// user_allowed_groups: created_at should be timestamptz
 	requireColumn(t, tx, "user_allowed_groups", "created_at", "timestamp with time zone", 0, false)
+
+	// ops alert webhook notification columns should exist even if legacy 108 was a no-op.
+	requireColumn(t, tx, "ops_alert_rules", "notify_webhook", "boolean", 0, false)
+	requireColumn(t, tx, "ops_alert_events", "webhook_sent", "boolean", 0, false)
 }
 
 func TestMigrationsRunner_AuthIdentityAndPaymentSchemaStayAligned(t *testing.T) {
