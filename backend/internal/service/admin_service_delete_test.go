@@ -25,6 +25,9 @@ type userRepoStub struct {
 	deletedIDs    []int64
 	usersByEmail  map[string]*User
 	getByEmailErr error
+	listUsers     []User
+	listPage      *pagination.PaginationResult
+	listErr       error
 }
 
 func (s *userRepoStub) Create(ctx context.Context, user *User) error {
@@ -104,6 +107,12 @@ func (s *userRepoStub) List(ctx context.Context, params pagination.PaginationPar
 }
 
 func (s *userRepoStub) ListWithFilters(ctx context.Context, params pagination.PaginationParams, filters UserListFilters) ([]User, *pagination.PaginationResult, error) {
+	if s.listErr != nil {
+		return nil, nil, s.listErr
+	}
+	if s.listPage != nil || s.listUsers != nil {
+		return s.listUsers, s.listPage, nil
+	}
 	panic("unexpected ListWithFilters call")
 }
 

@@ -3,15 +3,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const { post } = vi.hoisted(() => ({
   post: vi.fn(),
 }))
+const { put } = vi.hoisted(() => ({
+  put: vi.fn(),
+}))
 
 vi.mock('@/api/client', () => ({
   apiClient: {
     post,
+    put,
   },
 }))
 
 import {
   bindUserAuthIdentity,
+  update,
   type AdminBindAuthIdentityRequest,
   type AdminBoundAuthIdentity,
 } from '@/api/admin/users'
@@ -67,6 +72,7 @@ const responseContractExact: Assert<
 describe('admin users api auth identity binding', () => {
   beforeEach(() => {
     post.mockReset()
+    put.mockReset()
   })
 
   it('posts the backend-compatible auth identity bind payload and returns the backend response shape', async () => {
@@ -113,5 +119,16 @@ describe('admin users api auth identity binding', () => {
   it('keeps bind auth identity request and response types aligned with the backend contract', () => {
     expect(requestContractExact).toBe(true)
     expect(responseContractExact).toBe(true)
+  })
+
+  it('passes role updates through to the backend user update endpoint', async () => {
+    const payload = { role: 'admin' as const, concurrency: 8 }
+    const response = { id: 9, role: 'admin' as const }
+    put.mockResolvedValue({ data: response })
+
+    const result = await update(9, payload)
+
+    expect(put).toHaveBeenCalledWith('/admin/users/9', payload)
+    expect(result).toEqual(response)
   })
 })

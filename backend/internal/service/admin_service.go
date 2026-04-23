@@ -122,6 +122,7 @@ type UpdateUserInput struct {
 	Password      string
 	Username      *string
 	Notes         *string
+	Role          string
 	Balance       *float64 // 使用指针区分"未提供"和"设置为0"
 	Concurrency   *int     // 使用指针区分"未提供"和"设置为0"
 	Status        string
@@ -656,15 +657,36 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 			}
 		}
 	}
+	if input.Role != "" && input.Role != RoleAdmin && input.Role != RoleUser {
+		return nil, ErrInvalidUserRole
+	}
 
 	user, err := s.userRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	// Protect admin users: cannot disable admin accounts
-	if user.Role == "admin" && input.Status == "disabled" {
+	effectiveRole := user.Role
+	if input.Role != "" {
+		effectiveRole = input.Role
+	}
+	effectiveStatus := user.Status
+	if input.Status != "" {
+		effectiveStatus = input.Status
+	}
+
+	// Protect admin users: disabled admin accounts are not allowed.
+	if effectiveRole == RoleAdmin && effectiveStatus == StatusDisabled {
 		return nil, errors.New("cannot disable admin user")
+	}
+	if user.Role == RoleAdmin && effectiveRole != RoleAdmin && user.Status == StatusActive {
+		activeAdminCount, err := s.countActiveAdmins(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if activeAdminCount <= 1 {
+			return nil, ErrLastActiveAdminRoleChange
+		}
 	}
 
 	oldConcurrency := user.Concurrency
@@ -678,6 +700,9 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 		if err := user.SetPassword(input.Password); err != nil {
 			return nil, err
 		}
+	}
+	if input.Role != "" {
+		user.Role = input.Role
 	}
 
 	if input.Username != nil {
@@ -738,6 +763,22 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 	}
 
 	return user, nil
+}
+
+func (s *adminServiceImpl) countActiveAdmins(ctx context.Context) (int64, error) {
+	includeSubscriptions := false
+	_, page, err := s.userRepo.ListWithFilters(ctx, pagination.PaginationParams{Page: 1, PageSize: 1}, UserListFilters{
+		Status:               StatusActive,
+		Role:                 RoleAdmin,
+		IncludeSubscriptions: &includeSubscriptions,
+	})
+	if err != nil {
+		return 0, err
+	}
+	if page == nil {
+		return 0, nil
+	}
+	return page.Total, nil
 }
 
 func (s *adminServiceImpl) DeleteUser(ctx context.Context, id int64) error {
