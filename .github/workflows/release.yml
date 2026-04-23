@@ -1,3 +1,5 @@
+# NOTE: backend-ci.yml is intentionally omitted in this fork.
+# Keep only the release workflow here unless we explicitly decide to restore CI.
 name: Publish GHCR
 
 on:
