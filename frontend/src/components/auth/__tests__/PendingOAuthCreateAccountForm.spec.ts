@@ -36,6 +36,7 @@ vi.mock('@/stores', () => ({
 
 describe('PendingOAuthCreateAccountForm', () => {
   beforeEach(() => {
+    sessionStorage.clear()
     sendVerifyCode.mockReset()
     sendPendingOAuthVerifyCode.mockReset()
     getPublicSettings.mockReset()
@@ -117,6 +118,29 @@ describe('PendingOAuthCreateAccountForm', () => {
         }
       ]
     ])
+  })
+
+  it('prefills the persisted invitation code for invitation-only signup', async () => {
+    sessionStorage.setItem('auth_invitation_code', 'INVITE-LINK')
+    getPublicSettings.mockResolvedValue({
+      invitation_code_enabled: true,
+      turnstile_enabled: false,
+      turnstile_site_key: ''
+    })
+
+    const wrapper = mount(PendingOAuthCreateAccountForm, {
+      props: {
+        testIdPrefix: 'linuxdo',
+        initialEmail: 'prefill@example.com',
+        isSubmitting: false
+      }
+    })
+
+    await flushPromises()
+
+    expect(
+      (wrapper.get('[data-testid="linuxdo-create-account-invitation-code"]').element as HTMLInputElement).value
+    ).toBe('INVITE-LINK')
   })
 
   it('sends a verify code for the trimmed email value', async () => {

@@ -290,6 +290,11 @@ import {
 } from '@/api/auth'
 import { buildAuthErrorMessage } from '@/utils/authError'
 import {
+  clearPersistedInvitationCode,
+  persistInvitationCode,
+  resolveInvitationCode
+} from '@/utils/invitationLink'
+import {
   isRegistrationEmailSuffixAllowed,
   normalizeRegistrationEmailSuffixWhitelist
 } from '@/utils/registrationEmailPolicy'
@@ -377,6 +382,13 @@ watch(validationToastMessage, (value, previousValue) => {
   }
 })
 
+watch(
+  () => formData.invitation_code,
+  value => {
+    persistInvitationCode(value)
+  }
+)
+
 // ==================== Lifecycle ====================
 
 onMounted(async () => {
@@ -404,6 +416,14 @@ onMounted(async () => {
         formData.promo_code = promoParam
         // Validate the promo code from URL
         await validatePromoCodeDebounced(promoParam)
+      }
+    }
+
+    if (invitationCodeEnabled.value) {
+      const invitationCode = resolveInvitationCode(route.query)
+      if (invitationCode) {
+        formData.invitation_code = invitationCode
+        await validateInvitationCodeDebounced(invitationCode)
       }
     }
   } catch (error) {
@@ -724,6 +744,8 @@ async function handleRegister(): Promise<void> {
       promo_code: formData.promo_code || undefined,
       invitation_code: formData.invitation_code || undefined
     })
+
+    clearPersistedInvitationCode()
 
     // Show success toast
     appStore.showSuccess(t('auth.accountCreatedSuccess', { siteName: siteName.value }))

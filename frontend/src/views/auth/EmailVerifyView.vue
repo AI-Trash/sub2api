@@ -163,6 +163,7 @@ import {
 } from '@/api/auth'
 import { apiClient } from '@/api/client'
 import { buildAuthErrorMessage } from '@/utils/authError'
+import { clearPersistedInvitationCode } from '@/utils/invitationLink'
 import {
   isRegistrationEmailSuffixAllowed,
   normalizeRegistrationEmailSuffixWhitelist
@@ -530,6 +531,7 @@ async function handleVerify(): Promise<void> {
 
     // Clear session data
     sessionStorage.removeItem('register_data')
+    clearPersistedInvitationCode()
 
     // Show success toast
     appStore.showSuccess(t('auth.accountCreatedSuccess', { siteName: siteName.value }))

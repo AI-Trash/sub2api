@@ -56,7 +56,7 @@
           default-sort-order="desc"
           @sort="handleSort"
         >
-          <template #cell-code="{ value }">
+          <template #cell-code="{ value, row }">
             <div class="flex items-center space-x-2">
               <code class="font-mono text-sm text-gray-900 dark:text-gray-100">{{ value }}</code>
               <button
@@ -70,6 +70,36 @@
                 :title="copiedCode === value ? t('admin.redeem.copied') : t('keys.copyToClipboard')"
               >
                 <Icon v-if="copiedCode !== value" name="copy" size="sm" :stroke-width="2" />
+                <svg v-else class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M5 13l4 4L19 7"
+                  />
+                </svg>
+              </button>
+              <button
+                v-if="row.type === 'invitation'"
+                @click="copyInvitationLink(value)"
+                :class="[
+                  'flex items-center transition-colors',
+                  copiedInviteLink === value
+                    ? 'text-green-500'
+                    : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+                ]"
+                :title="
+                  copiedInviteLink === value
+                    ? t('admin.redeem.inviteLinkCopied')
+                    : t('admin.redeem.copyInviteLink')
+                "
+              >
+                <Icon
+                  v-if="copiedInviteLink !== value"
+                  name="link"
+                  size="sm"
+                  :stroke-width="2"
+                />
                 <svg v-else class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
                     stroke-linecap="round"
@@ -387,6 +417,29 @@
               </svg>
               {{ copiedAll ? t('admin.redeem.copied') : t('admin.redeem.copyAll') }}
             </button>
+            <button
+              v-if="generatedCodesAreInvitation"
+              @click="copyGeneratedInvitationLinks"
+              :class="[
+                'btn flex items-center gap-2 transition-all',
+                copiedInviteLinks ? 'btn-success' : 'btn-secondary'
+              ]"
+            >
+              <Icon v-if="!copiedInviteLinks" name="link" size="sm" :stroke-width="2" />
+              <svg v-else class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M5 13l4 4L19 7"
+                />
+              </svg>
+              {{
+                copiedInviteLinks
+                  ? t('admin.redeem.inviteLinksCopied')
+                  : t('admin.redeem.copyInviteLinks')
+              }}
+            </button>
             <button @click="downloadGeneratedCodes" class="btn btn-primary flex items-center gap-2">
               <Icon name="download" size="sm" :stroke-width="2" />
               {{ t('admin.redeem.download') }}
@@ -417,6 +470,7 @@ import Select from '@/components/common/Select.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
 import Icon from '@/components/icons/Icon.vue'
+import { buildInvitationLink } from '@/utils/invitationLink'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -454,6 +508,14 @@ const generatedCodesText = computed(() => {
   return generatedCodes.value.map((code) => code.code).join('\n')
 })
 
+const generatedInvitationLinksText = computed(() => {
+  return generatedCodes.value.map((code) => buildInvitationLink(code.code)).join('\n')
+})
+
+const generatedCodesAreInvitation = computed(() => {
+  return generatedCodes.value.length > 0 && generatedCodes.value.every((code) => code.type === 'invitation')
+})
+
 const textareaHeight = computed(() => {
   const lineCount = generatedCodes.value.length
   const lineHeight = 24 // approximate line height in px
@@ -468,11 +530,13 @@ const textareaHeight = computed(() => {
 })
 
 const copiedAll = ref(false)
+const copiedInviteLinks = ref(false)
 
 const closeResultDialog = () => {
   showResultDialog.value = false
   generatedCodes.value = []
   copiedAll.value = false
+  copiedInviteLinks.value = false
 }
 
 const copyGeneratedCodes = async () => {
@@ -484,6 +548,20 @@ const copyGeneratedCodes = async () => {
     }, 2000)
   } catch (error) {
     appStore.showError(t('admin.redeem.failedToCopy'))
+  }
+}
+
+const copyGeneratedInvitationLinks = async () => {
+  const success = await clipboardCopy(
+    generatedInvitationLinksText.value,
+    t('admin.redeem.inviteLinksCopied')
+  )
+
+  if (success) {
+    copiedInviteLinks.value = true
+    setTimeout(() => {
+      copiedInviteLinks.value = false
+    }, 2000)
   }
 }
 
@@ -556,6 +634,7 @@ const showDeleteDialog = ref(false)
 const showDeleteUnusedDialog = ref(false)
 const deletingCode = ref<RedeemCode | null>(null)
 const copiedCode = ref<string | null>(null)
+const copiedInviteLink = ref<string | null>(null)
 
 const generateForm = reactive({
   type: 'balance' as RedeemCodeType,
@@ -689,6 +768,19 @@ const copyToClipboard = async (text: string) => {
     copiedCode.value = text
     setTimeout(() => {
       copiedCode.value = null
+    }, 2000)
+  }
+}
+
+const copyInvitationLink = async (code: string) => {
+  const success = await clipboardCopy(
+    buildInvitationLink(code),
+    t('admin.redeem.inviteLinkCopied')
+  )
+  if (success) {
+    copiedInviteLink.value = code
+    setTimeout(() => {
+      copiedInviteLink.value = null
     }, 2000)
   }
 }
