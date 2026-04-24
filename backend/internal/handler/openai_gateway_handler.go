@@ -1067,8 +1067,11 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		)
 		return
 	}
+	closeImmediately := true
 	defer func() {
-		_ = wsConn.CloseNow()
+		if closeImmediately {
+			_ = wsConn.CloseNow()
+		}
 	}()
 	wsConn.SetReadLimit(16 * 1024 * 1024)
 
@@ -1313,6 +1316,8 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		closeOpenAIClientWS(wsConn, coderws.StatusInternalError, "upstream websocket proxy failed")
 		return
 	}
+	closeImmediately = false
+	_ = wsConn.Close(coderws.StatusNormalClosure, "")
 	reqLog.Info("openai.websocket_ingress_closed", zap.Int64("account_id", account.ID))
 }
 
