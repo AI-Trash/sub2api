@@ -44,6 +44,8 @@ type RedeemCodeRepository interface {
 	GetByCode(ctx context.Context, code string) (*RedeemCode, error)
 	Update(ctx context.Context, code *RedeemCode) error
 	Delete(ctx context.Context, id int64) error
+	DeleteAll(ctx context.Context) (int64, error)
+	DeleteByStatuses(ctx context.Context, statuses []string) (int64, error)
 	Use(ctx context.Context, id, userID int64) error
 
 	List(ctx context.Context, params pagination.PaginationParams) ([]RedeemCode, *pagination.PaginationResult, error)
@@ -145,11 +147,8 @@ func (s *RedeemService) GenerateCodes(ctx context.Context, req GenerateCodesRequ
 		codeType = RedeemTypeBalance
 	}
 
-	// 邀请码类型的 value 设为 0
+	// Invitation codes may carry a signup trial balance in Value.
 	value := req.Value
-	if codeType == RedeemTypeInvitation {
-		value = 0
-	}
 
 	codes := make([]RedeemCode, 0, req.Count)
 	for i := 0; i < req.Count; i++ {

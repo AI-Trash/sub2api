@@ -3318,7 +3318,7 @@ export default {
       concurrency: 'Concurrency',
       subscription: 'Subscription',
       invitation: 'Invitation',
-      invitationHint: 'Invitation codes are used to restrict user registration. They are automatically marked as used after use.',
+      invitationHint: 'Invitation codes restrict registration. The amount is granted as trial balance to the registering user and the code is marked as used after use.',
       unused: 'Unused',
       used: 'Used',
       columns: {
@@ -3333,11 +3333,17 @@ export default {
       userPrefix: 'User #{id}',
       exportCsv: 'Export CSV',
       deleteAllUnused: 'Delete All Unused Codes',
+      deleteUsedOrExpired: 'Delete Used/Expired Codes',
+      deleteAllCodes: 'Delete All Codes',
       deleteCode: 'Delete Redeem Code',
       deleteCodeConfirm:
         'Are you sure you want to delete this redeem code? This action cannot be undone.',
       deleteAllUnusedConfirm:
         'Are you sure you want to delete all unused (active) redeem codes? This action cannot be undone.',
+      deleteUsedOrExpiredConfirm:
+        'Are you sure you want to delete all used or expired redeem codes? This action cannot be undone.',
+      deleteAllCodesConfirm:
+        'Are you sure you want to delete every redeem code? This action cannot be undone.',
       deleteAll: 'Delete All',
       generateCodesTitle: 'Generate Redeem Codes',
       generatedSuccessfully: 'Generated Successfully',
@@ -3358,12 +3364,18 @@ export default {
       codesExported: 'Codes exported successfully',
       codeDeleted: 'Redeem code deleted successfully',
       codesDeleted: 'Successfully deleted {count} unused code(s)',
+      usedOrExpiredCodesDeleted: 'Successfully deleted {count} used/expired code(s)',
+      allCodesDeleted: 'Successfully deleted {count} redeem code(s)',
       noUnusedCodes: 'No unused codes to delete',
+      noUsedOrExpiredCodes: 'No used or expired codes to delete',
+      noCodesToDelete: 'No redeem codes to delete',
       failedToLoad: 'Failed to load redeem codes',
       failedToGenerate: 'Failed to generate codes',
       failedToExport: 'Failed to export codes',
       failedToDelete: 'Failed to delete code',
       failedToDeleteUnused: 'Failed to delete unused codes',
+      failedToDeleteUsedOrExpired: 'Failed to delete used or expired codes',
+      failedToDeleteAll: 'Failed to delete all codes',
       failedToCopy: 'Failed to copy codes',
       types: {
         balance: 'Balance',

@@ -515,6 +515,18 @@ func (s *stubAdminService) BatchDeleteRedeemCodes(ctx context.Context, ids []int
 	return int64(len(ids)), nil
 }
 
+func (s *stubAdminService) DeleteUnusedRedeemCodes(ctx context.Context) (int64, error) {
+	return int64(len(s.redeems)), nil
+}
+
+func (s *stubAdminService) DeleteAllRedeemCodes(ctx context.Context) (int64, error) {
+	return int64(len(s.redeems)), nil
+}
+
+func (s *stubAdminService) DeleteUsedOrExpiredRedeemCodes(ctx context.Context) (int64, error) {
+	return int64(len(s.redeems)), nil
+}
+
 func (s *stubAdminService) ExpireRedeemCode(ctx context.Context, id int64) (*service.RedeemCode, error) {
 	code := service.RedeemCode{ID: id, Code: "R-TEST", Status: service.StatusUsed}
 	return &code, nil

@@ -114,6 +114,51 @@ export async function batchDelete(ids: number[]): Promise<{
 }
 
 /**
+ * Delete all redeem codes
+ * @returns Success confirmation
+ */
+export async function deleteAll(): Promise<{
+  deleted: number
+  message: string
+}> {
+  const { data } = await apiClient.delete<{
+    deleted: number
+    message: string
+  }>('/admin/redeem-codes/all')
+  return data
+}
+
+/**
+ * Delete all unused redeem codes
+ * @returns Success confirmation
+ */
+export async function deleteUnused(): Promise<{
+  deleted: number
+  message: string
+}> {
+  const { data } = await apiClient.delete<{
+    deleted: number
+    message: string
+  }>('/admin/redeem-codes/unused')
+  return data
+}
+
+/**
+ * Delete all used or expired redeem codes
+ * @returns Success confirmation
+ */
+export async function deleteUsedOrExpired(): Promise<{
+  deleted: number
+  message: string
+}> {
+  const { data } = await apiClient.delete<{
+    deleted: number
+    message: string
+  }>('/admin/redeem-codes/used-or-expired')
+  return data
+}
+
+/**
  * Expire redeem code
  * @param id - Redeem code ID
  * @returns Updated redeem code
@@ -171,6 +216,9 @@ export const redeemAPI = {
   generate,
   delete: deleteCode,
   batchDelete,
+  deleteUnused,
+  deleteAll,
+  deleteUsedOrExpired,
   expire,
   getStats,
   exportCodes

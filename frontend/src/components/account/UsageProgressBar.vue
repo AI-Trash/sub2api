@@ -2,15 +2,18 @@
   <div>
     <!-- Window stats row (above progress bar) -->
     <div
-      v-if="windowStats && (windowStats.requests > 0 || windowStats.tokens > 0)"
+      v-if="hasStatsRow"
       class="mb-0.5 flex items-center"
     >
       <div class="flex items-center gap-1.5 text-[9px] text-gray-500 dark:text-gray-400">
-        <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">
+        <span v-if="windowStats" class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">
           {{ formatRequests }} req
         </span>
-        <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">
+        <span v-if="windowStats" class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">
           {{ formatTokens }}
+        </span>
+        <span v-if="totalTokens" class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800" title="estimated equivalent tokens: total / used / remaining">
+          est T {{ formatTotalTokens }} / U {{ formatUsedTokens }} / R {{ formatRemainingTokens }}
         </span>
         <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800" :title="t('usage.accountBilled')">
           A ${{ formatAccountCost }}
@@ -69,6 +72,9 @@ const props = defineProps<{
   color: 'indigo' | 'emerald' | 'purple' | 'amber'
   windowStats?: WindowStats | null
   showNowWhenIdle?: boolean
+  totalTokens?: number
+  usedTokens?: number
+  remainingTokens?: number
 }>()
 
 const { t } = useI18n()
@@ -182,6 +188,19 @@ const formatTokens = computed(() => {
   if (!props.windowStats) return ''
   return formatCompactNumber(props.windowStats.tokens)
 })
+
+const hasStatsRow = computed(() => {
+  return Boolean(
+    (props.windowStats && (props.windowStats.requests > 0 || props.windowStats.tokens > 0)) ||
+    props.totalTokens ||
+    props.usedTokens ||
+    props.remainingTokens
+  )
+})
+
+const formatTotalTokens = computed(() => formatCompactNumber(props.totalTokens || 0))
+const formatUsedTokens = computed(() => formatCompactNumber(props.usedTokens || 0))
+const formatRemainingTokens = computed(() => formatCompactNumber(props.remainingTokens || 0))
 
 const formatAccountCost = computed(() => {
   if (!props.windowStats) return '0.00'

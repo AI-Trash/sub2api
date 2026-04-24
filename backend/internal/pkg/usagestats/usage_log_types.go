@@ -117,9 +117,15 @@ type EndpointStat struct {
 
 // GroupUsageSummary represents today's and cumulative cost for a single group.
 type GroupUsageSummary struct {
-	GroupID   int64   `json:"group_id"`
-	TodayCost float64 `json:"today_cost"`
-	TotalCost float64 `json:"total_cost"`
+	GroupID         int64   `json:"group_id"`
+	TodayCost       float64 `json:"today_cost"`
+	TotalCost       float64 `json:"total_cost"`
+	FiveHourBalance float64 `json:"five_hour_balance,omitempty"`
+	WeeklyBalance   float64 `json:"weekly_balance,omitempty"`
+	// Remaining token fields are equivalent-token estimates derived from usage percent.
+	// Balance fields are derived from actual billed cost and are the authoritative display value.
+	FiveHourTokens int64 `json:"five_hour_remaining_tokens,omitempty"`
+	WeeklyTokens   int64 `json:"weekly_remaining_tokens,omitempty"`
 }
 
 // GroupStat represents usage statistics for a single group

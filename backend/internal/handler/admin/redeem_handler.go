@@ -261,6 +261,51 @@ func (h *RedeemHandler) BatchDelete(c *gin.Context) {
 	})
 }
 
+// DeleteUnused handles deleting all unused redeem codes.
+// DELETE /api/v1/admin/redeem-codes/unused
+func (h *RedeemHandler) DeleteUnused(c *gin.Context) {
+	deleted, err := h.adminService.DeleteUnusedRedeemCodes(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{
+		"deleted": deleted,
+		"message": "Redeem codes deleted successfully",
+	})
+}
+
+// DeleteAll handles deleting all redeem codes.
+// DELETE /api/v1/admin/redeem-codes/all
+func (h *RedeemHandler) DeleteAll(c *gin.Context) {
+	deleted, err := h.adminService.DeleteAllRedeemCodes(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{
+		"deleted": deleted,
+		"message": "Redeem codes deleted successfully",
+	})
+}
+
+// DeleteUsedOrExpired handles deleting all used or expired redeem codes.
+// DELETE /api/v1/admin/redeem-codes/used-or-expired
+func (h *RedeemHandler) DeleteUsedOrExpired(c *gin.Context) {
+	deleted, err := h.adminService.DeleteUsedOrExpiredRedeemCodes(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{
+		"deleted": deleted,
+		"message": "Redeem codes deleted successfully",
+	})
+}
+
 // Expire handles expiring a redeem code
 // POST /api/v1/admin/redeem-codes/:id/expire
 func (h *RedeemHandler) Expire(c *gin.Context) {

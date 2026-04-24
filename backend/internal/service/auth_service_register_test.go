@@ -215,6 +215,47 @@ func newAuthService(repo *userRepoStub, settings map[string]string, emailCache E
 	)
 }
 
+func TestAuthService_Register_InvitationValueAddsSignupBalance(t *testing.T) {
+	repo := &userRepoStub{nextID: 71}
+	service := newAuthService(repo, map[string]string{
+		SettingKeyRegistrationEnabled:   "true",
+		SettingKeyInvitationCodeEnabled: "true",
+	}, nil)
+	service.redeemRepo = &redeemRepoStub{codesByCode: map[string]*RedeemCode{
+		"invite-trial": {
+			ID:     101,
+			Code:   "invite-trial",
+			Type:   RedeemTypeInvitation,
+			Value:  6.5,
+			Status: StatusUnused,
+		},
+	}}
+
+	_, user, err := service.RegisterWithVerification(context.Background(), "trial@test.com", "password", "", "", "invite-trial")
+	require.NoError(t, err)
+	require.NotNil(t, user)
+	require.Equal(t, 10.0, user.Balance)
+	require.Len(t, repo.created, 1)
+	require.Equal(t, 10.0, repo.created[0].Balance)
+	redeemRepo := service.redeemRepo.(*redeemRepoStub)
+	require.Equal(t, []redeemUseCall{{id: 101, userID: 71}}, redeemRepo.used)
+}
+
+func TestRedeemService_GenerateCodesKeepsInvitationValue(t *testing.T) {
+	repo := &redeemRepoStub{}
+	svc := NewRedeemService(repo, nil, nil, nil, nil, nil, nil)
+
+	codes, err := svc.GenerateCodes(context.Background(), GenerateCodesRequest{
+		Count: 1,
+		Type:  RedeemTypeInvitation,
+		Value: 8.25,
+	})
+	require.NoError(t, err)
+	require.Len(t, codes, 1)
+	require.Equal(t, RedeemTypeInvitation, codes[0].Type)
+	require.Equal(t, 8.25, codes[0].Value)
+}
+
 func TestAuthService_Register_Disabled(t *testing.T) {
 	repo := &userRepoStub{}
 	service := newAuthService(repo, map[string]string{

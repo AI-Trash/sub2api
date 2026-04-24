@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <AppLayout>
     <TablePageLayout>
       <template #filters>
@@ -201,9 +201,15 @@
         />
 
         <!-- Batch Actions -->
-        <div v-if="filters.status === 'unused'" class="flex justify-end">
+        <div class="flex flex-wrap justify-end gap-2">
+          <button @click="showDeleteUsedOrExpiredDialog = true" class="btn btn-danger">
+            {{ t('admin.redeem.deleteUsedOrExpired') }}
+          </button>
           <button @click="showDeleteUnusedDialog = true" class="btn btn-danger">
             {{ t('admin.redeem.deleteAllUnused') }}
+          </button>
+          <button @click="showDeleteAllDialog = true" class="btn btn-danger">
+            {{ t('admin.redeem.deleteAllCodes') }}
           </button>
         </div>
       </template>
@@ -233,6 +239,30 @@
       @cancel="showDeleteUnusedDialog = false"
     />
 
+    <!-- Delete Used or Expired Codes Dialog -->
+    <ConfirmDialog
+      :show="showDeleteUsedOrExpiredDialog"
+      :title="t('admin.redeem.deleteUsedOrExpired')"
+      :message="t('admin.redeem.deleteUsedOrExpiredConfirm')"
+      :confirm-text="t('admin.redeem.deleteAll')"
+      :cancel-text="t('common.cancel')"
+      danger
+      @confirm="confirmDeleteUsedOrExpired"
+      @cancel="showDeleteUsedOrExpiredDialog = false"
+    />
+
+    <!-- Delete All Codes Dialog -->
+    <ConfirmDialog
+      :show="showDeleteAllDialog"
+      :title="t('admin.redeem.deleteAllCodes')"
+      :message="t('admin.redeem.deleteAllCodesConfirm')"
+      :confirm-text="t('admin.redeem.deleteAll')"
+      :cancel-text="t('common.cancel')"
+      danger
+      @confirm="confirmDeleteAll"
+      @cancel="showDeleteAllDialog = false"
+    />
+
     <!-- Generate Codes Dialog -->
     <Teleport to="body">
       <div v-if="showGenerateDialog" class="fixed inset-0 z-50 flex items-center justify-center">
@@ -248,11 +278,11 @@
               <label class="input-label">{{ t('admin.redeem.codeType') }}</label>
               <Select v-model="generateForm.type" :options="typeOptions" />
             </div>
-            <!-- 余额/并发类型：显示数值输入 -->
-            <div v-if="generateForm.type !== 'subscription' && generateForm.type !== 'invitation'">
+            <!-- 浣欓/骞跺彂/閭€璇风爜绫诲瀷锛氭樉绀烘暟鍊艰緭鍏?-->
+            <div v-if="generateForm.type !== 'subscription'">
               <label class="input-label">
                 {{
-                  generateForm.type === 'balance'
+                  generateForm.type === 'balance' || generateForm.type === 'invitation'
                     ? t('admin.redeem.amount')
                     : t('admin.redeem.columns.value')
                 }}
@@ -260,19 +290,19 @@
               <input
                 v-model.number="generateForm.value"
                 type="number"
-                :step="generateForm.type === 'balance' ? '0.01' : '1'"
-                :min="generateForm.type === 'balance' ? '0.01' : '1'"
+                :step="generateForm.type === 'balance' || generateForm.type === 'invitation' ? '0.01' : '1'"
+                :min="generateForm.type === 'balance' || generateForm.type === 'invitation' ? '0.01' : '1'"
                 required
                 class="input"
               />
             </div>
-            <!-- 邀请码类型：显示提示信息 -->
+            <!-- 閭€璇风爜绫诲瀷锛氭樉绀烘彁绀轰俊鎭?-->
             <div v-if="generateForm.type === 'invitation'" class="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
               <p class="text-sm text-blue-700 dark:text-blue-300">
                 {{ t('admin.redeem.invitationHint') }}
               </p>
             </div>
-            <!-- 订阅类型：显示分组选择和有效天数 -->
+            <!-- 璁㈤槄绫诲瀷锛氭樉绀哄垎缁勯€夋嫨鍜屾湁鏁堝ぉ鏁?-->
             <template v-if="generateForm.type === 'subscription'">
               <div>
                 <label class="input-label">{{ t('admin.redeem.selectGroup') }}</label>
@@ -490,7 +520,7 @@ const showResultDialog = ref(false)
 const generatedCodes = ref<RedeemCode[]>([])
 const subscriptionGroups = ref<Group[]>([])
 
-// 订阅类型分组选项
+// 璁㈤槄绫诲瀷鍒嗙粍閫夐」
 const subscriptionGroupOptions = computed(() => {
   return subscriptionGroups.value
     .filter((g) => g.subscription_type === 'subscription')
@@ -632,6 +662,8 @@ let abortController: AbortController | null = null
 
 const showDeleteDialog = ref(false)
 const showDeleteUnusedDialog = ref(false)
+const showDeleteUsedOrExpiredDialog = ref(false)
+const showDeleteAllDialog = ref(false)
 const deletingCode = ref<RedeemCode | null>(null)
 const copiedCode = ref<string | null>(null)
 const copiedInviteLink = ref<string | null>(null)
@@ -644,13 +676,11 @@ const generateForm = reactive({
   validity_days: 30
 })
 
-// 监听类型变化，邀请码类型时自动设置 value 为 0
+// 鐩戝惉绫诲瀷鍙樺寲锛岀‘淇濋渶瑕佹暟鍊肩殑绫诲瀷鏈夐粯璁ゅ€?
 watch(
   () => generateForm.type,
-  (newType) => {
-    if (newType === 'invitation') {
-      generateForm.value = 0
-    } else if (generateForm.value === 0) {
+  () => {
+    if (generateForm.value === 0) {
       generateForm.value = 10
     }
   }
@@ -732,7 +762,7 @@ const handleSort = (key: string, order: 'asc' | 'desc') => {
 }
 
 const handleGenerateCodes = async () => {
-  // 订阅类型必须选择分组
+  // 璁㈤槄绫诲瀷蹇呴』閫夋嫨鍒嗙粍
   if (generateForm.type === 'subscription' && !generateForm.group_id) {
     appStore.showError(t('admin.redeem.groupRequired'))
     return
@@ -750,7 +780,7 @@ const handleGenerateCodes = async () => {
     showGenerateDialog.value = false
     generatedCodes.value = result
     showResultDialog.value = true
-    // 重置表单
+    // 閲嶇疆琛ㄥ崟
     generateForm.group_id = null
     generateForm.validity_days = 30
     loadCodes()
@@ -828,17 +858,12 @@ const confirmDelete = async () => {
 
 const confirmDeleteUnused = async () => {
   try {
-    // Get all unused codes and delete them
-    const unusedCodesResponse = await adminAPI.redeem.list(1, 1000, { status: 'unused' })
-    const unusedCodeIds = unusedCodesResponse.items.map((code) => code.id)
-
-    if (unusedCodeIds.length === 0) {
+    const result = await adminAPI.redeem.deleteUnused()
+    if (result.deleted === 0) {
       appStore.showInfo(t('admin.redeem.noUnusedCodes'))
       showDeleteUnusedDialog.value = false
       return
     }
-
-    const result = await adminAPI.redeem.batchDelete(unusedCodeIds)
     appStore.showSuccess(t('admin.redeem.codesDeleted', { count: result.deleted }))
     showDeleteUnusedDialog.value = false
     loadCodes()
@@ -848,7 +873,41 @@ const confirmDeleteUnused = async () => {
   }
 }
 
-// 加载订阅类型分组
+const confirmDeleteUsedOrExpired = async () => {
+  try {
+    const result = await adminAPI.redeem.deleteUsedOrExpired()
+    if (result.deleted === 0) {
+      appStore.showInfo(t('admin.redeem.noUsedOrExpiredCodes'))
+      showDeleteUsedOrExpiredDialog.value = false
+      return
+    }
+    appStore.showSuccess(t('admin.redeem.usedOrExpiredCodesDeleted', { count: result.deleted }))
+    showDeleteUsedOrExpiredDialog.value = false
+    loadCodes()
+  } catch (error: any) {
+    appStore.showError(error.response?.data?.detail || t('admin.redeem.failedToDeleteUsedOrExpired'))
+    console.error('Error deleting used or expired codes:', error)
+  }
+}
+
+const confirmDeleteAll = async () => {
+  try {
+    const result = await adminAPI.redeem.deleteAll()
+    if (result.deleted === 0) {
+      appStore.showInfo(t('admin.redeem.noCodesToDelete'))
+      showDeleteAllDialog.value = false
+      return
+    }
+    appStore.showSuccess(t('admin.redeem.allCodesDeleted', { count: result.deleted }))
+    showDeleteAllDialog.value = false
+    loadCodes()
+  } catch (error: any) {
+    appStore.showError(error.response?.data?.detail || t('admin.redeem.failedToDeleteAll'))
+    console.error('Error deleting all codes:', error)
+  }
+}
+
+// 鍔犺浇璁㈤槄绫诲瀷鍒嗙粍
 const loadSubscriptionGroups = async () => {
   try {
     const groups = await adminAPI.groups.getAll()
@@ -868,3 +927,4 @@ onUnmounted(() => {
   abortController?.abort()
 })
 </script>
+

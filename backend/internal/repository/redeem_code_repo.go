@@ -96,6 +96,19 @@ func (r *redeemCodeRepository) Delete(ctx context.Context, id int64) error {
 	return err
 }
 
+func (r *redeemCodeRepository) DeleteAll(ctx context.Context) (int64, error) {
+	deleted, err := r.client.RedeemCode.Delete().Exec(ctx)
+	return int64(deleted), err
+}
+
+func (r *redeemCodeRepository) DeleteByStatuses(ctx context.Context, statuses []string) (int64, error) {
+	if len(statuses) == 0 {
+		return 0, nil
+	}
+	deleted, err := r.client.RedeemCode.Delete().Where(redeemcode.StatusIn(statuses...)).Exec(ctx)
+	return int64(deleted), err
+}
+
 func (r *redeemCodeRepository) List(ctx context.Context, params pagination.PaginationParams) ([]service.RedeemCode, *pagination.PaginationResult, error) {
 	return r.ListWithFilters(ctx, params, "", "", "")
 }

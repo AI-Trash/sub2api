@@ -47,6 +47,9 @@
           :utilization="usageInfo.five_hour.utilization"
           :resets-at="usageInfo.five_hour.resets_at"
           :window-stats="usageInfo.five_hour.window_stats"
+          :total-tokens="usageInfo.five_hour.total_tokens"
+          :used-tokens="usageInfo.five_hour.used_tokens"
+          :remaining-tokens="usageInfo.five_hour.remaining_tokens"
           color="indigo"
         />
 
@@ -56,6 +59,9 @@
           label="7d"
           :utilization="usageInfo.seven_day.utilization"
           :resets-at="usageInfo.seven_day.resets_at"
+          :total-tokens="usageInfo.seven_day.total_tokens"
+          :used-tokens="usageInfo.seven_day.used_tokens"
+          :remaining-tokens="usageInfo.seven_day.remaining_tokens"
           color="emerald"
         />
 
@@ -114,6 +120,9 @@
           :utilization="usageInfo.five_hour.utilization"
           :resets-at="usageInfo.five_hour.resets_at"
           :window-stats="usageInfo.five_hour.window_stats"
+          :total-tokens="usageInfo.five_hour.total_tokens"
+          :used-tokens="usageInfo.five_hour.used_tokens"
+          :remaining-tokens="usageInfo.five_hour.remaining_tokens"
           :show-now-when-idle="true"
           color="indigo"
         />
@@ -123,6 +132,9 @@
           :utilization="usageInfo.seven_day.utilization"
           :resets-at="usageInfo.seven_day.resets_at"
           :window-stats="usageInfo.seven_day.window_stats"
+          :total-tokens="usageInfo.seven_day.total_tokens"
+          :used-tokens="usageInfo.seven_day.used_tokens"
+          :remaining-tokens="usageInfo.seven_day.remaining_tokens"
           :show-now-when-idle="true"
           color="emerald"
         />

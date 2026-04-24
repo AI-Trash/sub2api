@@ -201,7 +201,7 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 		Email:        email,
 		PasswordHash: hashedPassword,
 		Role:         RoleUser,
-		Balance:      grantPlan.Balance,
+		Balance:      grantPlan.Balance + invitationSignupBalance(invitationRedeemCode),
 		Concurrency:  grantPlan.Concurrency,
 		Status:       StatusActive,
 	}
@@ -598,7 +598,7 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 				Username:     username,
 				PasswordHash: hashedPassword,
 				Role:         RoleUser,
-				Balance:      grantPlan.Balance,
+				Balance:      grantPlan.Balance + invitationSignupBalance(invitationRedeemCode),
 				Concurrency:  grantPlan.Concurrency,
 				Status:       StatusActive,
 				SignupSource: signupSource,
@@ -680,6 +680,13 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 		return nil, nil, fmt.Errorf("generate token pair: %w", err)
 	}
 	return tokenPair, user, nil
+}
+
+func invitationSignupBalance(code *RedeemCode) float64 {
+	if code == nil || code.Type != RedeemTypeInvitation || code.Value <= 0 {
+		return 0
+	}
+	return code.Value
 }
 
 func (s *AuthService) assignSubscriptions(ctx context.Context, userID int64, items []DefaultSubscriptionSetting, notes string) {

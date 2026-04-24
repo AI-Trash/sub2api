@@ -149,6 +149,11 @@ type UsageProgress struct {
 	WindowStats      *WindowStats `json:"window_stats,omitempty"` // 窗口期统计（从窗口开始到当前的使用量）
 	UsedRequests     int64        `json:"used_requests,omitempty"`
 	LimitRequests    int64        `json:"limit_requests,omitempty"`
+	// Token totals are estimated from local token usage and upstream utilization.
+	// They are equivalent-token estimates only; actual billable balance should use cost fields.
+	TotalTokens     int64 `json:"total_tokens,omitempty"`
+	UsedTokens      int64 `json:"used_tokens,omitempty"`
+	RemainingTokens int64 `json:"remaining_tokens,omitempty"`
 }
 
 // AntigravityModelQuota Antigravity 单个模型的配额信息
@@ -531,6 +536,7 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 			usage.FiveHour = &UsageProgress{Utilization: 0}
 		}
 		usage.FiveHour.WindowStats = windowStatsFromAccountStats(stats)
+		populateTokenQuota(usage.FiveHour, stats.Tokens)
 	}
 
 	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, now.Add(-7*24*time.Hour)); err == nil {
@@ -538,6 +544,7 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 			usage.SevenDay = &UsageProgress{Utilization: 0}
 		}
 		usage.SevenDay.WindowStats = windowStatsFromAccountStats(stats)
+		populateTokenQuota(usage.SevenDay, stats.Tokens)
 	}
 
 	return usage, nil
@@ -1110,9 +1117,33 @@ func buildCodexUsageProgressFromExtra(extra map[string]any, window string, now t
 	// 窗口已过期（resetAt 在 now 之前）→ 额度已重置，归零
 	if progress.ResetsAt != nil && !now.Before(*progress.ResetsAt) {
 		progress.Utilization = 0
+		progress.TotalTokens = 0
+		progress.UsedTokens = 0
+		progress.RemainingTokens = 0
 	}
 
 	return progress
+}
+
+func populateTokenQuota(progress *UsageProgress, usedTokens int64) {
+	if progress == nil || usedTokens < 0 {
+		return
+	}
+	progress.UsedTokens = usedTokens
+	if usedTokens == 0 {
+		return
+	}
+	if progress.Utilization <= 0 {
+		progress.RemainingTokens = usedTokens
+		return
+	}
+
+	total := int64(float64(usedTokens) * 100 / progress.Utilization)
+	if total < usedTokens {
+		total = usedTokens
+	}
+	progress.TotalTokens = total
+	progress.RemainingTokens = total - usedTokens
 }
 
 func (s *AccountUsageService) GetAccountUsageStats(ctx context.Context, accountID int64, startTime, endTime time.Time) (*usagestats.AccountUsageStatsResponse, error) {
