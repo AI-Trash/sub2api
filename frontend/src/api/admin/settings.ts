@@ -478,6 +478,7 @@ export interface SystemSettings {
 
   // Available Channels feature switch
   available_channels_enabled: boolean;
+  quota_reference_model: string;
 }
 
 export interface UpdateSettingsRequest {
@@ -636,6 +637,7 @@ export interface UpdateSettingsRequest {
 
   // Available Channels feature switch
   available_channels_enabled?: boolean;
+  quota_reference_model?: string;
 }
 
 /**

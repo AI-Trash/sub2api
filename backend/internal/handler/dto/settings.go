@@ -192,6 +192,9 @@ type SystemSettings struct {
 
 	// Available Channels feature switch (user-facing aggregate view)
 	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
+
+	// Quota reference model for balance -> token conversion
+	QuotaReferenceModel string `json:"quota_reference_model"`
 }
 
 type DefaultSubscriptionSetting struct {

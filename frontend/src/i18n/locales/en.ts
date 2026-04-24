@@ -4798,6 +4798,13 @@ export default {
           enabled: 'Enable Available Channels',
           enabledHint: 'When off, the sidebar entry is hidden and the endpoint returns an empty list.',
         },
+        quotaReference: {
+          title: 'Quota Reference Model',
+          description: 'Convert account and group balances into normal-rate equivalent tokens for the selected model, without using fast / priority pricing.',
+          model: 'Reference model',
+          modelHint: 'Leave empty to hide equivalent tokens and keep balance-only display.',
+          unset: 'No conversion',
+        },
       },
       emailTabDisabledTitle: 'Email Verification Not Enabled',
       emailTabDisabledHint: 'Enable email verification in the Security tab to configure SMTP settings.',

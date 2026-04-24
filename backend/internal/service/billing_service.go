@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"log"
+	"sort"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -737,6 +738,70 @@ func (s *BillingService) ListSupportedModels() []string {
 		models = append(models, model)
 	}
 	return models
+}
+
+// ListPricedModels returns all models available from the built-in pricing list plus fallbacks.
+func (s *BillingService) ListPricedModels() []string {
+	unique := make(map[string]struct{})
+	models := make([]string, 0)
+
+	if s.pricingService != nil {
+		for _, model := range s.pricingService.ListPricedModels() {
+			if _, exists := unique[model]; exists {
+				continue
+			}
+			unique[model] = struct{}{}
+			models = append(models, model)
+		}
+	}
+
+	for model := range s.fallbackPrices {
+		if _, exists := unique[model]; exists {
+			continue
+		}
+		unique[model] = struct{}{}
+		models = append(models, model)
+	}
+
+	sort.Strings(models)
+	return models
+}
+
+// GetReferenceTokenPrice returns the normal-rate token price used for quota conversion.
+// Fast / priority pricing is intentionally ignored.
+func (s *BillingService) GetReferenceTokenPrice(model string) (float64, error) {
+	pricing, err := s.GetModelPricing(model)
+	if err != nil {
+		return 0, err
+	}
+
+	prices := make([]float64, 0, 2)
+	if pricing.InputPricePerToken > 0 {
+		prices = append(prices, pricing.InputPricePerToken)
+	}
+	if pricing.OutputPricePerToken > 0 {
+		prices = append(prices, pricing.OutputPricePerToken)
+	}
+	if len(prices) == 0 {
+		if pricing.CacheCreationPricePerToken > 0 {
+			prices = append(prices, pricing.CacheCreationPricePerToken)
+		}
+		if pricing.CacheReadPricePerToken > 0 {
+			prices = append(prices, pricing.CacheReadPricePerToken)
+		}
+		if pricing.ImageOutputPricePerToken > 0 {
+			prices = append(prices, pricing.ImageOutputPricePerToken)
+		}
+	}
+	if len(prices) == 0 {
+		return 0, fmt.Errorf("reference token price not found for model: %s", model)
+	}
+
+	total := 0.0
+	for _, price := range prices {
+		total += price
+	}
+	return total / float64(len(prices)), nil
 }
 
 // IsModelSupported 检查模型是否支持（现在总是返回true，因为有模糊匹配回退）

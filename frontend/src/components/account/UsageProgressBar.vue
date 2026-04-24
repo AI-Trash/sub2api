@@ -12,8 +12,8 @@
         <span v-if="windowStats" class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">
           {{ formatTokens }}
         </span>
-        <span v-if="totalTokens" class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800" title="estimated equivalent tokens: total / used / remaining">
-          est T {{ formatTotalTokens }} / U {{ formatUsedTokens }} / R {{ formatRemainingTokens }}
+        <span v-if="totalTokens" class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800" title="reference-model equivalent tokens: total / used / remaining">
+          ref T {{ formatTotalTokens }} / U {{ formatUsedTokens }} / R {{ formatRemainingTokens }}
         </span>
         <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800" :title="t('usage.accountBilled')">
           A ${{ formatAccountCost }}

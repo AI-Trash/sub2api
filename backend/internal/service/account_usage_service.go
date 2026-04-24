@@ -149,8 +149,8 @@ type UsageProgress struct {
 	WindowStats      *WindowStats `json:"window_stats,omitempty"` // 窗口期统计（从窗口开始到当前的使用量）
 	UsedRequests     int64        `json:"used_requests,omitempty"`
 	LimitRequests    int64        `json:"limit_requests,omitempty"`
-	// Token totals are estimated from local token usage and upstream utilization.
-	// They are equivalent-token estimates only; actual billable balance should use cost fields.
+	// Token totals are reference-model-equivalent estimates derived from account cost.
+	// They are only populated when quota_reference_model is configured.
 	TotalTokens     int64 `json:"total_tokens,omitempty"`
 	UsedTokens      int64 `json:"used_tokens,omitempty"`
 	RemainingTokens int64 `json:"remaining_tokens,omitempty"`
@@ -271,6 +271,8 @@ type AccountUsageService struct {
 	cache                   *UsageCache
 	identityCache           IdentityCache
 	tlsFPProfileService     *TLSFingerprintProfileService
+	settingService          *SettingService
+	billingService          *BillingService
 }
 
 // NewAccountUsageService 创建AccountUsageService实例
@@ -400,8 +402,8 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64) (*U
 		now := time.Now()
 		usage := s.buildUsageInfo(apiResp, &now)
 
-		// 4. 添加窗口统计（有独立缓存，1 分钟）
-		s.addWindowStats(ctx, account, usage)
+		// 4. 添加窗口统计，并按参考模型换算等效 token
+		s.attachReferenceWindowStats(ctx, account.ID, usage, now)
 
 		// 5. 将主动查询结果同步到被动缓存，下次 passive 加载即为最新值
 		s.syncActiveToPassive(ctx, account.ID, usage)
@@ -413,8 +415,7 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64) (*U
 	// Setup Token账号：根据session_window推算（没有profile scope，无法调用usage API）
 	if account.Type == AccountTypeSetupToken {
 		usage := s.estimateSetupTokenUsage(account)
-		// 添加窗口统计
-		s.addWindowStats(ctx, account, usage)
+		s.attachReferenceWindowStats(ctx, account.ID, usage, time.Now())
 		return usage, nil
 	}
 
@@ -468,8 +469,7 @@ func (s *AccountUsageService) GetPassiveUsage(ctx context.Context, accountID int
 		}
 	}
 
-	// 添加窗口统计
-	s.addWindowStats(ctx, account, info)
+	s.attachReferenceWindowStats(ctx, account.ID, info, time.Now())
 
 	return info, nil
 }
@@ -527,27 +527,37 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 		}
 	}
 
-	if s.usageLogRepo == nil {
-		return usage, nil
-	}
-
-	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, now.Add(-5*time.Hour)); err == nil {
-		if usage.FiveHour == nil {
-			usage.FiveHour = &UsageProgress{Utilization: 0}
-		}
-		usage.FiveHour.WindowStats = windowStatsFromAccountStats(stats)
-		populateTokenQuota(usage.FiveHour, stats.Tokens)
-	}
-
-	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, now.Add(-7*24*time.Hour)); err == nil {
-		if usage.SevenDay == nil {
-			usage.SevenDay = &UsageProgress{Utilization: 0}
-		}
-		usage.SevenDay.WindowStats = windowStatsFromAccountStats(stats)
-		populateTokenQuota(usage.SevenDay, stats.Tokens)
-	}
+	s.attachReferenceWindowStats(ctx, account.ID, usage, now)
 
 	return usage, nil
+}
+
+func (s *AccountUsageService) attachReferenceWindowStats(ctx context.Context, accountID int64, usage *UsageInfo, now time.Time) {
+	if usage == nil {
+		return
+	}
+
+	if s.usageLogRepo != nil {
+		if usage.FiveHour != nil {
+			if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, accountID, now.Add(-5*time.Hour)); err == nil {
+				usage.FiveHour.WindowStats = windowStatsFromAccountStats(stats)
+			}
+		}
+
+		if usage.SevenDay != nil {
+			if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, accountID, now.Add(-7*24*time.Hour)); err == nil {
+				usage.SevenDay.WindowStats = windowStatsFromAccountStats(stats)
+			}
+		}
+	}
+
+	if refCfg, err := resolveQuotaReferenceConfig(ctx, s.settingService, s.billingService); err == nil && refCfg != nil {
+		applyUsageProgressReferenceTokens(usage.FiveHour, refCfg.TokenPrice)
+		applyUsageProgressReferenceTokens(usage.SevenDay, refCfg.TokenPrice)
+	} else {
+		clearUsageProgressReferenceTokens(usage.FiveHour)
+		clearUsageProgressReferenceTokens(usage.SevenDay)
+	}
 }
 
 func shouldRefreshOpenAICodexSnapshot(account *Account, usage *UsageInfo, now time.Time) bool {
@@ -1123,27 +1133,6 @@ func buildCodexUsageProgressFromExtra(extra map[string]any, window string, now t
 	}
 
 	return progress
-}
-
-func populateTokenQuota(progress *UsageProgress, usedTokens int64) {
-	if progress == nil || usedTokens < 0 {
-		return
-	}
-	progress.UsedTokens = usedTokens
-	if usedTokens == 0 {
-		return
-	}
-	if progress.Utilization <= 0 {
-		progress.RemainingTokens = usedTokens
-		return
-	}
-
-	total := int64(float64(usedTokens) * 100 / progress.Utilization)
-	if total < usedTokens {
-		total = usedTokens
-	}
-	progress.TotalTokens = total
-	progress.RemainingTokens = total - usedTokens
 }
 
 func (s *AccountUsageService) GetAccountUsageStats(ctx context.Context, accountID int64, startTime, endTime time.Time) (*usagestats.AccountUsageStatsResponse, error) {

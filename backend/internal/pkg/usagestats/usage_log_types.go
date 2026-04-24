@@ -122,7 +122,7 @@ type GroupUsageSummary struct {
 	TotalCost       float64 `json:"total_cost"`
 	FiveHourBalance float64 `json:"five_hour_balance,omitempty"`
 	WeeklyBalance   float64 `json:"weekly_balance,omitempty"`
-	// Remaining token fields are equivalent-token estimates derived from usage percent.
+	// Remaining token fields are reference-model-equivalent estimates derived from balance.
 	// Balance fields are derived from actual billed cost and are the authoritative display value.
 	FiveHourTokens int64 `json:"five_hour_remaining_tokens,omitempty"`
 	WeeklyTokens   int64 `json:"weekly_remaining_tokens,omitempty"`

@@ -43,6 +43,8 @@ type DashboardService struct {
 	usageRepo      UsageLogRepository
 	aggRepo        DashboardAggregationRepository
 	cache          DashboardStatsCache
+	settingService *SettingService
+	billingService *BillingService
 	cacheFreshTTL  time.Duration
 	cacheTTL       time.Duration
 	refreshTimeout time.Duration
@@ -175,6 +177,16 @@ func (s *DashboardService) GetGroupUsageSummary(ctx context.Context, todayStart 
 	if err != nil {
 		return nil, fmt.Errorf("get group usage summary: %w", err)
 	}
+
+	refCfg, refErr := resolveQuotaReferenceConfig(ctx, s.settingService, s.billingService)
+	for i := range results {
+		results[i].FiveHourTokens = 0
+		results[i].WeeklyTokens = 0
+		if refErr == nil && refCfg != nil {
+			applyGroupSummaryReferenceTokens(&results[i], refCfg.TokenPrice)
+		}
+	}
+
 	return results, nil
 }
 

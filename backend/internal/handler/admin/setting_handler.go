@@ -242,6 +242,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		ChannelMonitorDefaultIntervalSeconds: settings.ChannelMonitorDefaultIntervalSeconds,
 
 		AvailableChannelsEnabled: settings.AvailableChannelsEnabled,
+		QuotaReferenceModel:      settings.QuotaReferenceModel,
 	}
 	response.Success(c, systemSettingsResponseData(payload, authSourceDefaults))
 }
@@ -440,7 +441,8 @@ type UpdateSettingsRequest struct {
 	ChannelMonitorDefaultIntervalSeconds *int  `json:"channel_monitor_default_interval_seconds"`
 
 	// Available Channels feature switch (user-facing)
-	AvailableChannelsEnabled *bool `json:"available_channels_enabled"`
+	AvailableChannelsEnabled *bool   `json:"available_channels_enabled"`
+	QuotaReferenceModel      *string `json:"quota_reference_model"`
 }
 
 // UpdateSettings 更新系统设置
@@ -1265,6 +1267,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.AvailableChannelsEnabled
 		}(),
+		QuotaReferenceModel: func() string {
+			if req.QuotaReferenceModel != nil {
+				return strings.TrimSpace(*req.QuotaReferenceModel)
+			}
+			return previousSettings.QuotaReferenceModel
+		}(),
 	}
 
 	authSourceDefaults := &service.AuthSourceDefaultSettings{
@@ -1502,6 +1510,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		ChannelMonitorDefaultIntervalSeconds: updatedSettings.ChannelMonitorDefaultIntervalSeconds,
 
 		AvailableChannelsEnabled: updatedSettings.AvailableChannelsEnabled,
+		QuotaReferenceModel:      updatedSettings.QuotaReferenceModel,
 	}
 	response.Success(c, systemSettingsResponseData(payload, updatedAuthSourceDefaults))
 }
@@ -1869,6 +1878,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.AvailableChannelsEnabled != after.AvailableChannelsEnabled {
 		changed = append(changed, "available_channels_enabled")
+	}
+	if before.QuotaReferenceModel != after.QuotaReferenceModel {
+		changed = append(changed, "quota_reference_model")
 	}
 	changed = appendAuthSourceDefaultChanges(changed, beforeAuthSourceDefaults, afterAuthSourceDefaults)
 	return changed

@@ -281,14 +281,14 @@
                 <span class="ml-1 font-medium text-indigo-600 dark:text-indigo-400">
                   ${{ formatCost(usageMap.get(row.id)?.five_hour_balance ?? 0) }}
                 </span>
-                <span class="ml-1 text-gray-400">≈ {{ formatCompactTokens(usageMap.get(row.id)?.five_hour_remaining_tokens ?? 0) }}</span>
+                <span v-if="(usageMap.get(row.id)?.five_hour_remaining_tokens ?? 0) > 0" class="ml-1 text-gray-400">≈ {{ formatCompactTokens(usageMap.get(row.id)?.five_hour_remaining_tokens ?? 0) }}</span>
               </div>
               <div v-if="usageMap.get(row.id)?.weekly_balance" class="text-gray-500 dark:text-gray-400">
                 <span class="text-gray-400 dark:text-gray-500">7d {{ t("admin.users.columns.balance") }}</span>
                 <span class="ml-1 font-medium text-emerald-600 dark:text-emerald-400">
                   ${{ formatCost(usageMap.get(row.id)?.weekly_balance ?? 0) }}
                 </span>
-                <span class="ml-1 text-gray-400">≈ {{ formatCompactTokens(usageMap.get(row.id)?.weekly_remaining_tokens ?? 0) }}</span>
+                <span v-if="(usageMap.get(row.id)?.weekly_remaining_tokens ?? 0) > 0" class="ml-1 text-gray-400">≈ {{ formatCompactTokens(usageMap.get(row.id)?.weekly_remaining_tokens ?? 0) }}</span>
               </div>
             </div>
           </template>
@@ -3409,7 +3409,7 @@ const formatCost = (cost: number): string => {
   return cost.toFixed(2);
 };
 
-const formatCompactTokens = (tokens: number): string => `${formatCompactNumber(tokens)} tok`;
+const formatCompactTokens = (tokens: number): string => `${formatCompactNumber(tokens)} ref tok`;
 
 const loadUsageSummary = async () => {
   usageLoading.value = true;

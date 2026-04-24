@@ -500,3 +500,13 @@ func (h *ChannelHandler) GetModelDefaultPricing(c *gin.Context) {
 		"image_output_price": pricing.ImageOutputPricePerToken,
 	})
 }
+
+// ListPricedModels returns all built-in priced models for admin selectors.
+// GET /api/v1/admin/channels/priced-models
+func (h *ChannelHandler) ListPricedModels(c *gin.Context) {
+	models := make([]string, 0)
+	if h.billingService != nil {
+		models = h.billingService.ListPricedModels()
+	}
+	response.Success(c, gin.H{"items": models})
+}
