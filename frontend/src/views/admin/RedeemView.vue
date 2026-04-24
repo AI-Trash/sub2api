@@ -39,6 +39,15 @@
             <button @click="handleExportCodes" class="btn btn-secondary">
               {{ t('admin.redeem.exportCsv') }}
             </button>
+            <button @click="showDeleteUsedOrExpiredDialog = true" class="btn btn-danger">
+              {{ t('admin.redeem.deleteUsedOrExpired') }}
+            </button>
+            <button @click="showDeleteUnusedDialog = true" class="btn btn-danger">
+              {{ t('admin.redeem.deleteAllUnused') }}
+            </button>
+            <button @click="showDeleteAllDialog = true" class="btn btn-danger">
+              {{ t('admin.redeem.deleteAllCodes') }}
+            </button>
             <button @click="showGenerateDialog = true" class="btn btn-primary">
               {{ t('admin.redeem.generateCodes') }}
             </button>
@@ -199,19 +208,6 @@
           @update:page="handlePageChange"
           @update:pageSize="handlePageSizeChange"
         />
-
-        <!-- Batch Actions -->
-        <div class="flex flex-wrap justify-end gap-2">
-          <button @click="showDeleteUsedOrExpiredDialog = true" class="btn btn-danger">
-            {{ t('admin.redeem.deleteUsedOrExpired') }}
-          </button>
-          <button @click="showDeleteUnusedDialog = true" class="btn btn-danger">
-            {{ t('admin.redeem.deleteAllUnused') }}
-          </button>
-          <button @click="showDeleteAllDialog = true" class="btn btn-danger">
-            {{ t('admin.redeem.deleteAllCodes') }}
-          </button>
-        </div>
       </template>
     </TablePageLayout>
 
