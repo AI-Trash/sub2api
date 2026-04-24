@@ -44,6 +44,18 @@
         <label class="input-label">{{ t('admin.users.columns.concurrency') }}</label>
         <input v-model.number="form.concurrency" type="number" class="input" />
       </div>
+      <div>
+        <label class="input-label">{{ t('admin.users.form.rpmLimit') }}</label>
+        <input
+          v-model.number="form.rpm_limit"
+          type="number"
+          min="0"
+          step="1"
+          class="input"
+          :placeholder="t('admin.users.form.rpmLimitPlaceholder')"
+        />
+        <p class="input-hint">{{ t('admin.users.form.rpmLimitHint') }}</p>
+      </div>
       <UserAttributeForm v-model="form.customAttributes" :user-id="user?.id" />
     </form>
     <template #footer>
@@ -80,6 +92,7 @@ const form = reactive({
   notes: '',
   role: 'user' as 'admin' | 'user',
   concurrency: 1,
+  rpm_limit: 0,
   customAttributes: {} as UserAttributeValuesMap
 })
 
@@ -92,6 +105,7 @@ watch(() => props.user, (u) => {
       notes: u.notes || '',
       role: u.role,
       concurrency: u.concurrency,
+      rpm_limit: u.rpm_limit ?? 0,
       customAttributes: {}
     })
     passwordCopied.value = false
@@ -125,7 +139,8 @@ const handleUpdateUser = async () => {
       username: form.username,
       notes: form.notes,
       role: form.role,
-      concurrency: form.concurrency
+      concurrency: form.concurrency,
+      rpm_limit: form.rpm_limit
     }
     if (form.password.trim()) data.password = form.password.trim()
     await adminAPI.users.update(props.user.id, data)
@@ -137,3 +152,4 @@ const handleUpdateUser = async () => {
   } finally { submitting.value = false }
 }
 </script>
+
