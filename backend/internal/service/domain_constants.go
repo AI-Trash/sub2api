@@ -268,9 +268,6 @@ const (
 	// sidebar entry is hidden. Defaults to false (opt-in feature).
 	SettingKeyAvailableChannelsEnabled = "available_channels_enabled"
 
-	// SettingKeyQuotaReferenceModel stores the model used to convert balances into equivalent tokens.
-	SettingKeyQuotaReferenceModel = "quota_reference_model"
-
 	// =========================
 	// Overload Cooldown (529)
 	// =========================

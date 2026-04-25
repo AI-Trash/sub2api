@@ -4959,13 +4959,6 @@ export default {
           enabled: '启用可用渠道',
           enabledHint: '关闭后用户端侧边栏入口隐藏，接口返回空数组。',
         },
-        quotaReference: {
-          title: '额度参考模型',
-          description: '将账号页和分组页的余额统一折算为所选模型的正常计费倍率等效 token，不使用 fast / priority 价格。',
-          model: '参考模型',
-          modelHint: '留空则不显示等效 token，只保留余额展示。',
-          unset: '不换算',
-        },
       },
       emailTabDisabledTitle: '邮箱验证未启用',
       emailTabDisabledHint: '请在「安全与认证」选项卡中启用邮箱验证后，再配置 SMTP 设置。',

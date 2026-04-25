@@ -3248,61 +3248,13 @@ func (r *usageLogRepository) GetUserBreakdownStats(ctx context.Context, startTim
 // or a materialized view / pre-aggregation table for cumulative costs.
 func (r *usageLogRepository) GetAllGroupUsageSummary(ctx context.Context, todayStart time.Time) ([]usagestats.GroupUsageSummary, error) {
 	query := `
-		WITH group_usage AS (
-			SELECT
-				g.id AS group_id,
-				COALESCE(SUM(ul.actual_cost), 0) AS total_cost,
-				COALESCE(SUM(CASE WHEN ul.created_at >= $1 THEN ul.actual_cost ELSE 0 END), 0) AS today_cost
-			FROM groups g
-			LEFT JOIN usage_logs ul ON ul.group_id = g.id
-			GROUP BY g.id
-		), account_window_usage AS (
-			-- Token columns below are only used to expose equivalent-token estimates.
-			-- Balance is calculated from actual_cost, so provider-specific pricing/rate multipliers
-			-- that are already reflected in billing remain preserved.
-			SELECT
-				a.id AS account_id,
-				CASE
-					WHEN a.extra->>'codex_5h_used_percent' ~ '^[0-9]+(\.[0-9]+)?$'
-					THEN (a.extra->>'codex_5h_used_percent')::numeric
-					ELSE 0
-				END AS five_hour_used_percent,
-				CASE
-					WHEN a.extra->>'codex_7d_used_percent' ~ '^[0-9]+(\.[0-9]+)?$'
-					THEN (a.extra->>'codex_7d_used_percent')::numeric
-					ELSE 0
-				END AS weekly_used_percent,
-				COALESCE(SUM(CASE WHEN ul.created_at >= NOW() - INTERVAL '5 hours' THEN ul.input_tokens + ul.output_tokens + ul.cache_creation_tokens + ul.cache_read_tokens ELSE 0 END), 0) AS five_hour_tokens,
-				COALESCE(SUM(CASE WHEN ul.created_at >= NOW() - INTERVAL '5 hours' THEN ul.actual_cost ELSE 0 END), 0) AS five_hour_cost,
-				COALESCE(SUM(CASE WHEN ul.created_at >= NOW() - INTERVAL '7 days' THEN ul.input_tokens + ul.output_tokens + ul.cache_creation_tokens + ul.cache_read_tokens ELSE 0 END), 0) AS weekly_tokens,
-				COALESCE(SUM(CASE WHEN ul.created_at >= NOW() - INTERVAL '7 days' THEN ul.actual_cost ELSE 0 END), 0) AS weekly_cost
-			FROM accounts a
-			LEFT JOIN usage_logs ul ON ul.account_id = a.id
-			WHERE a.deleted_at IS NULL
-				AND a.extra ? 'codex_5h_used_percent'
-				AND a.extra ? 'codex_7d_used_percent'
-			GROUP BY a.id, a.extra
-		), group_window_balance AS (
-			SELECT
-				ag.group_id,
-				COALESCE(SUM(CASE WHEN awu.five_hour_tokens > 0 AND awu.five_hour_used_percent > 0 THEN (awu.five_hour_tokens::numeric * (100 - LEAST(awu.five_hour_used_percent, 100)) / awu.five_hour_used_percent)::bigint ELSE 0 END), 0) AS five_hour_remaining_tokens,
-				COALESCE(SUM(CASE WHEN awu.weekly_tokens > 0 AND awu.weekly_used_percent > 0 THEN (awu.weekly_tokens::numeric * (100 - LEAST(awu.weekly_used_percent, 100)) / awu.weekly_used_percent)::bigint ELSE 0 END), 0) AS weekly_remaining_tokens,
-				COALESCE(SUM(CASE WHEN awu.five_hour_cost > 0 AND awu.five_hour_used_percent > 0 THEN awu.five_hour_cost * (100 - LEAST(awu.five_hour_used_percent, 100)) / awu.five_hour_used_percent ELSE 0 END), 0) AS five_hour_balance,
-				COALESCE(SUM(CASE WHEN awu.weekly_cost > 0 AND awu.weekly_used_percent > 0 THEN awu.weekly_cost * (100 - LEAST(awu.weekly_used_percent, 100)) / awu.weekly_used_percent ELSE 0 END), 0) AS weekly_balance
-			FROM account_groups ag
-			JOIN account_window_usage awu ON awu.account_id = ag.account_id
-			GROUP BY ag.group_id
-		)
 		SELECT
-			gu.group_id,
-			gu.total_cost,
-			gu.today_cost,
-			COALESCE(gwb.five_hour_balance, 0) AS five_hour_balance,
-			COALESCE(gwb.weekly_balance, 0) AS weekly_balance,
-			COALESCE(gwb.five_hour_remaining_tokens, 0) AS five_hour_remaining_tokens,
-			COALESCE(gwb.weekly_remaining_tokens, 0) AS weekly_remaining_tokens
-		FROM group_usage gu
-		LEFT JOIN group_window_balance gwb ON gwb.group_id = gu.group_id
+			g.id AS group_id,
+			COALESCE(SUM(ul.actual_cost), 0) AS total_cost,
+			COALESCE(SUM(CASE WHEN ul.created_at >= $1 THEN ul.actual_cost ELSE 0 END), 0) AS today_cost
+		FROM groups g
+		LEFT JOIN usage_logs ul ON ul.group_id = g.id
+		GROUP BY g.id
 	`
 
 	rows, err := r.sql.QueryContext(ctx, query, todayStart)
@@ -3313,15 +3265,7 @@ func (r *usageLogRepository) GetAllGroupUsageSummary(ctx context.Context, todayS
 	var results []usagestats.GroupUsageSummary
 	for rows.Next() {
 		var row usagestats.GroupUsageSummary
-		if err := rows.Scan(
-			&row.GroupID,
-			&row.TotalCost,
-			&row.TodayCost,
-			&row.FiveHourBalance,
-			&row.WeeklyBalance,
-			&row.FiveHourTokens,
-			&row.WeeklyTokens,
-		); err != nil {
+		if err := rows.Scan(&row.GroupID, &row.TotalCost, &row.TodayCost); err != nil {
 			return nil, err
 		}
 		results = append(results, row)

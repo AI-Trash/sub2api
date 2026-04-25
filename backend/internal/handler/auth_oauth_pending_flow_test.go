@@ -2473,6 +2473,14 @@ func (r *oauthPendingFlowRedeemCodeRepo) Delete(context.Context, int64) error {
 	panic("unexpected Delete call")
 }
 
+func (r *oauthPendingFlowRedeemCodeRepo) DeleteAll(context.Context) (int64, error) {
+	panic("unexpected DeleteAll call")
+}
+
+func (r *oauthPendingFlowRedeemCodeRepo) DeleteByStatuses(context.Context, []string) (int64, error) {
+	panic("unexpected DeleteByStatuses call")
+}
+
 func (r *oauthPendingFlowRedeemCodeRepo) Use(ctx context.Context, id, userID int64) error {
 	affected, err := r.client.RedeemCode.Update().
 		Where(redeemcode.IDEQ(id), redeemcode.StatusEQ(service.StatusUnused)).

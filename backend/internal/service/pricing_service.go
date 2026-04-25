@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -575,19 +574,6 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 	}
 
 	return nil
-}
-
-// ListPricedModels returns all models currently present in the built-in pricing list.
-func (s *PricingService) ListPricedModels() []string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	models := make([]string, 0, len(s.pricingData))
-	for model := range s.pricingData {
-		models = append(models, model)
-	}
-	sort.Strings(models)
-	return models
 }
 
 func (s *PricingService) buildModelLookupCandidates(modelLower string) []string {

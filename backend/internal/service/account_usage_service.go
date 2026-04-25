@@ -149,11 +149,6 @@ type UsageProgress struct {
 	WindowStats      *WindowStats `json:"window_stats,omitempty"` // 窗口期统计（从窗口开始到当前的使用量）
 	UsedRequests     int64        `json:"used_requests,omitempty"`
 	LimitRequests    int64        `json:"limit_requests,omitempty"`
-	// Token totals are reference-model-equivalent estimates derived from account cost.
-	// They are only populated when quota_reference_model is configured.
-	TotalTokens     int64 `json:"total_tokens,omitempty"`
-	UsedTokens      int64 `json:"used_tokens,omitempty"`
-	RemainingTokens int64 `json:"remaining_tokens,omitempty"`
 }
 
 // AntigravityModelQuota Antigravity 单个模型的配额信息
@@ -271,8 +266,6 @@ type AccountUsageService struct {
 	cache                   *UsageCache
 	identityCache           IdentityCache
 	tlsFPProfileService     *TLSFingerprintProfileService
-	settingService          *SettingService
-	billingService          *BillingService
 }
 
 // NewAccountUsageService 创建AccountUsageService实例
@@ -402,8 +395,8 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64) (*U
 		now := time.Now()
 		usage := s.buildUsageInfo(apiResp, &now)
 
-		// 4. 添加窗口统计，并按参考模型换算等效 token
-		s.attachReferenceWindowStats(ctx, account.ID, usage, now)
+		// 4. 添加窗口统计（有独立缓存，1 分钟）
+		s.addWindowStats(ctx, account, usage)
 
 		// 5. 将主动查询结果同步到被动缓存，下次 passive 加载即为最新值
 		s.syncActiveToPassive(ctx, account.ID, usage)
@@ -415,7 +408,8 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64) (*U
 	// Setup Token账号：根据session_window推算（没有profile scope，无法调用usage API）
 	if account.Type == AccountTypeSetupToken {
 		usage := s.estimateSetupTokenUsage(account)
-		s.attachReferenceWindowStats(ctx, account.ID, usage, time.Now())
+		// 添加窗口统计
+		s.addWindowStats(ctx, account, usage)
 		return usage, nil
 	}
 
@@ -469,7 +463,8 @@ func (s *AccountUsageService) GetPassiveUsage(ctx context.Context, accountID int
 		}
 	}
 
-	s.attachReferenceWindowStats(ctx, account.ID, info, time.Now())
+	// 添加窗口统计
+	s.addWindowStats(ctx, account, info)
 
 	return info, nil
 }
@@ -527,37 +522,25 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 		}
 	}
 
-	s.attachReferenceWindowStats(ctx, account.ID, usage, now)
+	if s.usageLogRepo == nil {
+		return usage, nil
+	}
+
+	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, now.Add(-5*time.Hour)); err == nil {
+		if usage.FiveHour == nil {
+			usage.FiveHour = &UsageProgress{Utilization: 0}
+		}
+		usage.FiveHour.WindowStats = windowStatsFromAccountStats(stats)
+	}
+
+	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, now.Add(-7*24*time.Hour)); err == nil {
+		if usage.SevenDay == nil {
+			usage.SevenDay = &UsageProgress{Utilization: 0}
+		}
+		usage.SevenDay.WindowStats = windowStatsFromAccountStats(stats)
+	}
 
 	return usage, nil
-}
-
-func (s *AccountUsageService) attachReferenceWindowStats(ctx context.Context, accountID int64, usage *UsageInfo, now time.Time) {
-	if usage == nil {
-		return
-	}
-
-	if s.usageLogRepo != nil {
-		if usage.FiveHour != nil {
-			if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, accountID, now.Add(-5*time.Hour)); err == nil {
-				usage.FiveHour.WindowStats = windowStatsFromAccountStats(stats)
-			}
-		}
-
-		if usage.SevenDay != nil {
-			if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, accountID, now.Add(-7*24*time.Hour)); err == nil {
-				usage.SevenDay.WindowStats = windowStatsFromAccountStats(stats)
-			}
-		}
-	}
-
-	if refCfg, err := resolveQuotaReferenceConfig(ctx, s.settingService, s.billingService); err == nil && refCfg != nil {
-		applyUsageProgressReferenceTokens(usage.FiveHour, refCfg.TokenPrice)
-		applyUsageProgressReferenceTokens(usage.SevenDay, refCfg.TokenPrice)
-	} else {
-		clearUsageProgressReferenceTokens(usage.FiveHour)
-		clearUsageProgressReferenceTokens(usage.SevenDay)
-	}
 }
 
 func shouldRefreshOpenAICodexSnapshot(account *Account, usage *UsageInfo, now time.Time) bool {
@@ -1127,9 +1110,6 @@ func buildCodexUsageProgressFromExtra(extra map[string]any, window string, now t
 	// 窗口已过期（resetAt 在 now 之前）→ 额度已重置，归零
 	if progress.ResetsAt != nil && !now.Before(*progress.ResetsAt) {
 		progress.Utilization = 0
-		progress.TotalTokens = 0
-		progress.UsedTokens = 0
-		progress.RemainingTokens = 0
 	}
 
 	return progress

@@ -3878,39 +3878,6 @@
           </div>
         </div>
 
-        <div class="card">
-          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
-              {{ t('admin.settings.features.quotaReference.title') }}
-            </h2>
-            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              {{ t('admin.settings.features.quotaReference.description') }}
-            </p>
-          </div>
-          <div class="space-y-4 p-6">
-            <div>
-              <label class="input-label">
-                {{ t('admin.settings.features.quotaReference.model') }}
-              </label>
-              <select v-model="form.quota_reference_model" class="input">
-                <option value="">
-                  {{ t('admin.settings.features.quotaReference.unset') }}
-                </option>
-                <option
-                  v-for="model in quotaReferenceModelOptions"
-                  :key="model"
-                  :value="model"
-                >
-                  {{ model }}
-                </option>
-              </select>
-              <p class="mt-1 text-xs text-gray-400">
-                {{ t('admin.settings.features.quotaReference.modelHint') }}
-              </p>
-            </div>
-          </div>
-        </div>
-
         </div><!-- /Tab: Features -->
 
         <!-- Tab: Email -->
@@ -4939,7 +4906,6 @@ const adminApiKeyMasked = ref("");
 const adminApiKeyOperating = ref(false);
 const newAdminApiKey = ref("");
 const subscriptionGroups = ref<AdminGroup[]>([]);
-const pricedModelOptions = ref<string[]>([]);
 
 // Overload Cooldown (529) 状态
 const overloadCooldownLoading = ref(true);
@@ -5020,16 +4986,6 @@ type SettingsForm = Omit<
   force_email_on_third_party_signup: boolean;
   openai_advanced_scheduler_enabled: boolean;
 };
-
-const quotaReferenceModelOptions = computed(() => {
-  const options = new Set(
-    pricedModelOptions.value.filter((model) => typeof model === "string" && model.trim() !== ""),
-  );
-  if (form.quota_reference_model?.trim()) {
-    options.add(form.quota_reference_model.trim());
-  }
-  return Array.from(options).sort((left, right) => left.localeCompare(right));
-});
 
 const form = reactive<SettingsForm>({
   registration_enabled: true,
@@ -5189,7 +5145,6 @@ const form = reactive<SettingsForm>({
   channel_monitor_default_interval_seconds: 60,
   // Available Channels feature switch
   available_channels_enabled: false,
-  quota_reference_model: "",
 });
 
 const authSourceDefaults = reactive<AuthSourceDefaultsState>(
@@ -5783,14 +5738,6 @@ async function loadSettings() {
   }
 }
 
-async function loadPricedModels() {
-  try {
-    pricedModelOptions.value = await adminAPI.channels.listPricedModels();
-  } catch {
-    pricedModelOptions.value = [];
-  }
-}
-
 async function loadSubscriptionGroups() {
   try {
     const groups = await adminAPI.groups.getAll();
@@ -6116,7 +6063,6 @@ async function saveSettings() {
         Number(form.channel_monitor_default_interval_seconds) || 60,
       // Available Channels feature switch
       available_channels_enabled: form.available_channels_enabled,
-      quota_reference_model: form.quota_reference_model || "",
     };
 
     appendAuthSourceDefaultsToUpdateRequest(payload, authSourceDefaults);
@@ -6890,7 +6836,6 @@ async function handleDeleteProvider() {
 
 onMounted(() => {
   loadSettings();
-  loadPricedModels();
   loadSubscriptionGroups();
   loadAdminApiKey();
   loadOverloadCooldownSettings();

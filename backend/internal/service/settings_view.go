@@ -134,9 +134,6 @@ type SystemSettings struct {
 	// Available Channels feature (user-facing aggregate view)
 	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
 
-	// Quota reference model for balance -> token conversion
-	QuotaReferenceModel string `json:"quota_reference_model"`
-
 	// Claude Code version check
 	MinClaudeCodeVersion string
 	MaxClaudeCodeVersion string

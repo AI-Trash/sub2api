@@ -164,10 +164,5 @@ export async function getModelDefaultPricing(model: string): Promise<ModelDefaul
   return data
 }
 
-export async function listPricedModels(): Promise<string[]> {
-  const { data } = await apiClient.get<{ items: string[] }>('/admin/channels/priced-models')
-  return Array.isArray(data.items) ? data.items : []
-}
-
-const channelsAPI = { list, getById, create, update, remove, getModelDefaultPricing, listPricedModels }
+const channelsAPI = { list, getById, create, update, remove, getModelDefaultPricing }
 export default channelsAPI

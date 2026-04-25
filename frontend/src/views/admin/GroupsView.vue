@@ -276,20 +276,6 @@
                   }}</span
                 >
               </div>
-              <div v-if="usageMap.get(row.id)?.five_hour_balance" class="text-gray-500 dark:text-gray-400">
-                <span class="text-gray-400 dark:text-gray-500">5h {{ t("admin.users.columns.balance") }}</span>
-                <span class="ml-1 font-medium text-indigo-600 dark:text-indigo-400">
-                  ${{ formatCost(usageMap.get(row.id)?.five_hour_balance ?? 0) }}
-                </span>
-                <span v-if="(usageMap.get(row.id)?.five_hour_remaining_tokens ?? 0) > 0" class="ml-1 text-gray-400">≈ {{ formatCompactTokens(usageMap.get(row.id)?.five_hour_remaining_tokens ?? 0) }}</span>
-              </div>
-              <div v-if="usageMap.get(row.id)?.weekly_balance" class="text-gray-500 dark:text-gray-400">
-                <span class="text-gray-400 dark:text-gray-500">7d {{ t("admin.users.columns.balance") }}</span>
-                <span class="ml-1 font-medium text-emerald-600 dark:text-emerald-400">
-                  ${{ formatCost(usageMap.get(row.id)?.weekly_balance ?? 0) }}
-                </span>
-                <span v-if="(usageMap.get(row.id)?.weekly_remaining_tokens ?? 0) > 0" class="ml-1 text-gray-400">≈ {{ formatCompactTokens(usageMap.get(row.id)?.weekly_remaining_tokens ?? 0) }}</span>
-              </div>
             </div>
           </template>
 
@@ -2772,7 +2758,6 @@ import { VueDraggable } from "vue-draggable-plus";
 import { createStableObjectKeyResolver } from "@/utils/stableObjectKey";
 import { useKeyedDebouncedSearch } from "@/composables/useKeyedDebouncedSearch";
 import { getPersistedPageSize } from "@/composables/usePersistedPageSize";
-import { formatCompactNumber } from "@/utils/format";
 import {
   createDefaultMessagesDispatchFormState,
   messagesDispatchConfigToFormState,
@@ -2962,16 +2947,9 @@ const copyAccountsGroupOptionsForEdit = computed(() => {
 
 const groups = ref<AdminGroup[]>([]);
 const loading = ref(false);
-type GroupUsageSummary = {
-  today_cost: number;
-  total_cost: number;
-  five_hour_balance?: number;
-  weekly_balance?: number;
-  five_hour_remaining_tokens?: number;
-  weekly_remaining_tokens?: number;
-};
-
-const usageMap = ref<Map<number, GroupUsageSummary>>(new Map());
+const usageMap = ref<Map<number, { today_cost: number; total_cost: number }>>(
+  new Map(),
+);
 const usageLoading = ref(false);
 const capacityMap = ref<
   Map<
@@ -3409,22 +3387,16 @@ const formatCost = (cost: number): string => {
   return cost.toFixed(2);
 };
 
-const formatCompactTokens = (tokens: number): string => `${formatCompactNumber(tokens)} ref tok`;
-
 const loadUsageSummary = async () => {
   usageLoading.value = true;
   try {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const data = await adminAPI.groups.getUsageSummary(tz);
-    const map = new Map<number, GroupUsageSummary>();
+    const map = new Map<number, { today_cost: number; total_cost: number }>();
     for (const item of data) {
       map.set(item.group_id, {
         today_cost: item.today_cost,
         total_cost: item.total_cost,
-        five_hour_balance: item.five_hour_balance,
-        weekly_balance: item.weekly_balance,
-        five_hour_remaining_tokens: item.five_hour_remaining_tokens,
-        weekly_remaining_tokens: item.weekly_remaining_tokens,
       });
     }
     usageMap.value = map;

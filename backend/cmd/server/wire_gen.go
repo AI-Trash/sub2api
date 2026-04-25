@@ -176,8 +176,6 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		return nil, err
 	}
 	billingService := service.NewBillingService(configConfig, pricingService)
-	dashboardService.SetQuotaReferenceServices(settingService, billingService)
-	accountUsageService.SetQuotaReferenceServices(settingService, billingService)
 	identityService := service.NewIdentityService(identityCache)
 	deferredService := service.ProvideDeferredService(accountRepository, timingWheelService)
 	claudeTokenProvider := service.ProvideClaudeTokenProvider(accountRepository, geminiTokenCache, oAuthService, oAuthRefreshAPI)
