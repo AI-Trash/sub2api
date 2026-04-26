@@ -3241,20 +3241,86 @@ func (r *usageLogRepository) GetUserBreakdownStats(ctx context.Context, startTim
 	return results, nil
 }
 
-// GetAllGroupUsageSummary returns today's and cumulative actual_cost for every group.
+// GetAllGroupUsageSummary returns today's/cumulative actual_cost and simple-sum account window percentages for every group.
 // todayStart is the start-of-day in the caller's timezone (UTC-based).
 // TODO(perf): This query scans ALL usage_logs rows for total_cost aggregation.
 // When usage_logs exceeds ~1M rows, consider adding a short-lived cache (30s)
 // or a materialized view / pre-aggregation table for cumulative costs.
 func (r *usageLogRepository) GetAllGroupUsageSummary(ctx context.Context, todayStart time.Time) ([]usagestats.GroupUsageSummary, error) {
 	query := `
+		WITH usage_costs AS (
+			SELECT
+				ul.group_id,
+				COALESCE(SUM(ul.actual_cost), 0) AS total_cost,
+				COALESCE(SUM(CASE WHEN ul.created_at >= $1 THEN ul.actual_cost ELSE 0 END), 0) AS today_cost
+			FROM usage_logs ul
+			WHERE ul.group_id IS NOT NULL
+			GROUP BY ul.group_id
+		),
+		account_windows AS (
+			SELECT
+				ag.group_id,
+				COALESCE(SUM(
+					CASE
+						WHEN a.platform = 'openai'
+							AND a.type = 'oauth'
+							AND (a.extra->>'codex_5h_used_percent') ~ '^[+-]?([0-9]+(\.[0-9]+)?|\.[0-9]+)$'
+							AND (
+								NULLIF(a.extra->>'codex_5h_reset_at', '') IS NULL
+								OR (
+									(a.extra->>'codex_5h_reset_at') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
+									AND (a.extra->>'codex_5h_reset_at')::timestamptz > NOW()
+								)
+							)
+							THEN (a.extra->>'codex_5h_used_percent')::double precision
+						WHEN a.platform = 'anthropic'
+							AND a.type IN ('oauth', 'setup-token')
+							AND (a.extra->>'session_window_utilization') ~ '^[+-]?([0-9]+(\.[0-9]+)?|\.[0-9]+)$'
+							AND (a.session_window_end IS NULL OR a.session_window_end > NOW())
+							THEN (a.extra->>'session_window_utilization')::double precision * 100
+						ELSE 0
+					END
+				), 0) AS window_5h_percent,
+				COALESCE(SUM(
+					CASE
+						WHEN a.platform = 'openai'
+							AND a.type = 'oauth'
+							AND (a.extra->>'codex_7d_used_percent') ~ '^[+-]?([0-9]+(\.[0-9]+)?|\.[0-9]+)$'
+							AND (
+								NULLIF(a.extra->>'codex_7d_reset_at', '') IS NULL
+								OR (
+									(a.extra->>'codex_7d_reset_at') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
+									AND (a.extra->>'codex_7d_reset_at')::timestamptz > NOW()
+								)
+							)
+							THEN (a.extra->>'codex_7d_used_percent')::double precision
+						WHEN a.platform = 'anthropic'
+							AND a.type IN ('oauth', 'setup-token')
+							AND (a.extra->>'passive_usage_7d_utilization') ~ '^[+-]?([0-9]+(\.[0-9]+)?|\.[0-9]+)$'
+							AND (
+								(a.extra->>'passive_usage_7d_reset') IS NULL
+								OR NOT ((a.extra->>'passive_usage_7d_reset') ~ '^[+-]?([0-9]+(\.[0-9]+)?|\.[0-9]+)$')
+								OR (a.extra->>'passive_usage_7d_reset')::double precision <= 0
+								OR to_timestamp((a.extra->>'passive_usage_7d_reset')::double precision) > NOW()
+							)
+							THEN (a.extra->>'passive_usage_7d_utilization')::double precision * 100
+						ELSE 0
+					END
+				), 0) AS window_weekly_percent
+			FROM account_groups ag
+			JOIN accounts a ON a.id = ag.account_id AND a.deleted_at IS NULL
+			GROUP BY ag.group_id
+		)
 		SELECT
 			g.id AS group_id,
-			COALESCE(SUM(ul.actual_cost), 0) AS total_cost,
-			COALESCE(SUM(CASE WHEN ul.created_at >= $1 THEN ul.actual_cost ELSE 0 END), 0) AS today_cost
+			COALESCE(uc.today_cost, 0) AS today_cost,
+			COALESCE(uc.total_cost, 0) AS total_cost,
+			COALESCE(aw.window_5h_percent, 0) AS window_5h_percent,
+			COALESCE(aw.window_weekly_percent, 0) AS window_weekly_percent
 		FROM groups g
-		LEFT JOIN usage_logs ul ON ul.group_id = g.id
-		GROUP BY g.id
+		LEFT JOIN usage_costs uc ON uc.group_id = g.id
+		LEFT JOIN account_windows aw ON aw.group_id = g.id
+		WHERE g.deleted_at IS NULL
 	`
 
 	rows, err := r.sql.QueryContext(ctx, query, todayStart)
@@ -3265,7 +3331,7 @@ func (r *usageLogRepository) GetAllGroupUsageSummary(ctx context.Context, todayS
 	var results []usagestats.GroupUsageSummary
 	for rows.Next() {
 		var row usagestats.GroupUsageSummary
-		if err := rows.Scan(&row.GroupID, &row.TotalCost, &row.TodayCost); err != nil {
+		if err := rows.Scan(&row.GroupID, &row.TodayCost, &row.TotalCost, &row.Window5hPercent, &row.WindowWeeklyPercent); err != nil {
 			return nil, err
 		}
 		results = append(results, row)

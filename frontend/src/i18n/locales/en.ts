@@ -1903,6 +1903,8 @@ export default {
       },
       usageToday: 'Today',
       usageTotal: 'Total',
+      usageWindow5h: '5h window',
+      usageWindowWeekly: 'Week window',
       accountsAvailable: 'Avail:',
       accountsRateLimited: 'Limited:',
       accountsTotal: 'Total:',

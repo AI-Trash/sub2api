@@ -409,6 +409,31 @@ func TestUsageLogRepositoryGetGroupStatsAccountCostColumn(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestUsageLogRepositoryGetAllGroupUsageSummaryScansWindowPercents(t *testing.T) {
+	db, mock := newSQLMock(t)
+	repo := &usageLogRepository{sql: db}
+
+	todayStart := time.Date(2026, 4, 27, 0, 0, 0, 0, time.UTC)
+	mock.ExpectQuery("WITH usage_costs AS").
+		WithArgs(todayStart).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"group_id", "today_cost", "total_cost", "window_5h_percent", "window_weekly_percent",
+		}).AddRow(int64(3), 1.25, 9.5, 135.5, 78.25))
+
+	results, err := repo.GetAllGroupUsageSummary(context.Background(), todayStart)
+	require.NoError(t, err)
+	require.Equal(t, []usagestats.GroupUsageSummary{
+		{
+			GroupID:             3,
+			TodayCost:           1.25,
+			TotalCost:           9.5,
+			Window5hPercent:     135.5,
+			WindowWeeklyPercent: 78.25,
+		},
+	}, results)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestUsageLogRepositoryGetStatsWithFiltersAlwaysReturnsAccountCost(t *testing.T) {
 	db, mock := newSQLMock(t)
 	repo := &usageLogRepository{sql: db}

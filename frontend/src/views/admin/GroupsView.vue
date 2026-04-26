@@ -276,6 +276,24 @@
                   }}</span
                 >
               </div>
+              <div class="text-gray-500 dark:text-gray-400">
+                <span class="text-gray-400 dark:text-gray-500">{{
+                  t("admin.groups.usageWindow5h")
+                }}</span>
+                <span class="ml-1 font-medium text-gray-700 dark:text-gray-300">{{
+                  formatPercent(usageMap.get(row.id)?.window_5h_percent ?? 0)
+                }}</span>
+              </div>
+              <div class="text-gray-500 dark:text-gray-400">
+                <span class="text-gray-400 dark:text-gray-500">{{
+                  t("admin.groups.usageWindowWeekly")
+                }}</span>
+                <span class="ml-1 font-medium text-gray-700 dark:text-gray-300">{{
+                  formatPercent(
+                    usageMap.get(row.id)?.window_weekly_percent ?? 0,
+                  )
+                }}</span>
+              </div>
             </div>
           </template>
 
@@ -2947,9 +2965,17 @@ const copyAccountsGroupOptionsForEdit = computed(() => {
 
 const groups = ref<AdminGroup[]>([]);
 const loading = ref(false);
-const usageMap = ref<Map<number, { today_cost: number; total_cost: number }>>(
-  new Map(),
-);
+const usageMap = ref<
+  Map<
+    number,
+    {
+      today_cost: number;
+      total_cost: number;
+      window_5h_percent: number;
+      window_weekly_percent: number;
+    }
+  >
+>(new Map());
 const usageLoading = ref(false);
 const capacityMap = ref<
   Map<
@@ -3387,16 +3413,32 @@ const formatCost = (cost: number): string => {
   return cost.toFixed(2);
 };
 
+const formatPercent = (value: number): string => {
+  const percent = Number.isFinite(value) ? value : 0;
+  if (Math.abs(percent) >= 1000) return `${percent.toFixed(0)}%`;
+  return `${percent.toFixed(1)}%`;
+};
+
 const loadUsageSummary = async () => {
   usageLoading.value = true;
   try {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const data = await adminAPI.groups.getUsageSummary(tz);
-    const map = new Map<number, { today_cost: number; total_cost: number }>();
+    const map = new Map<
+      number,
+      {
+        today_cost: number;
+        total_cost: number;
+        window_5h_percent: number;
+        window_weekly_percent: number;
+      }
+    >();
     for (const item of data) {
       map.set(item.group_id, {
         today_cost: item.today_cost,
         total_cost: item.total_cost,
+        window_5h_percent: item.window_5h_percent ?? 0,
+        window_weekly_percent: item.window_weekly_percent ?? 0,
       });
     }
     usageMap.value = map;

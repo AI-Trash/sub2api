@@ -1956,6 +1956,8 @@ export default {
       },
       usageToday: '今日',
       usageTotal: '累计',
+      usageWindow5h: '5h窗口',
+      usageWindowWeekly: '周窗口',
       accountsAvailable: '可用:',
       accountsRateLimited: '限流:',
       accountsTotal: '总量:',
