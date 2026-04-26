@@ -1068,7 +1068,14 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyInvitationCodeEnabled] = strconv.FormatBool(settings.InvitationCodeEnabled)
 	updates[SettingKeyTotpEnabled] = strconv.FormatBool(settings.TotpEnabled)
 
-	// 邮件服务设置（只有非空才更新密码）
+	// 邮件服务设置（密钥/密码只有非空才更新）
+	settings.EmailProvider = NormalizeEmailProvider(settings.EmailProvider)
+	settings.EmailAPIURL = normalizeEmailAPIURL(settings.EmailProvider, settings.EmailAPIURL)
+	updates[SettingKeyEmailProvider] = settings.EmailProvider
+	updates[SettingKeyEmailAPIURL] = settings.EmailAPIURL
+	if settings.EmailAPIKey != "" {
+		updates[SettingKeyEmailAPIKey] = settings.EmailAPIKey
+	}
 	updates[SettingKeySMTPHost] = settings.SMTPHost
 	updates[SettingKeySMTPPort] = strconv.Itoa(settings.SMTPPort)
 	updates[SettingKeySMTPUsername] = settings.SMTPUsername
@@ -1847,6 +1854,9 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyAuthSourceDefaultWeChatGrantOnSignup:     "false",
 		SettingKeyAuthSourceDefaultWeChatGrantOnFirstBind:  "false",
 		SettingKeyForceEmailOnThirdPartySignup:             "false",
+		SettingKeyEmailProvider:                            EmailProviderSMTP,
+		SettingKeyEmailAPIKey:                              "",
+		SettingKeyEmailAPIURL:                              "",
 		SettingKeySMTPPort:                                 "587",
 		SettingKeySMTPUseTLS:                               "false",
 		// Model fallback defaults
@@ -1894,6 +1904,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 // parseSettings 解析设置到结构体
 func (s *SettingService) parseSettings(settings map[string]string) *SystemSettings {
 	emailVerifyEnabled := settings[SettingKeyEmailVerifyEnabled] == "true"
+	emailProvider := NormalizeEmailProvider(settings[SettingKeyEmailProvider])
 	result := &SystemSettings{
 		RegistrationEnabled:              settings[SettingKeyRegistrationEnabled] == "true",
 		EmailVerifyEnabled:               emailVerifyEnabled,
@@ -1903,6 +1914,9 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		FrontendURL:                      settings[SettingKeyFrontendURL],
 		InvitationCodeEnabled:            settings[SettingKeyInvitationCodeEnabled] == "true",
 		TotpEnabled:                      settings[SettingKeyTotpEnabled] == "true",
+		EmailProvider:                    emailProvider,
+		EmailAPIURL:                      normalizeEmailAPIURL(emailProvider, settings[SettingKeyEmailAPIURL]),
+		EmailAPIKeyConfigured:            settings[SettingKeyEmailAPIKey] != "",
 		SMTPHost:                         settings[SettingKeySMTPHost],
 		SMTPUsername:                     settings[SettingKeySMTPUsername],
 		SMTPFrom:                         settings[SettingKeySMTPFrom],
@@ -1977,6 +1991,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.DefaultSubscriptions = parseDefaultSubscriptions(settings[SettingKeyDefaultSubscriptions])
 
 	// 敏感信息直接返回，方便测试连接时使用
+	result.EmailAPIKey = settings[SettingKeyEmailAPIKey]
 	result.SMTPPassword = settings[SettingKeySMTPPassword]
 	result.TurnstileSecretKey = settings[SettingKeyTurnstileSecretKey]
 

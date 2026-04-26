@@ -1,15 +1,19 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"crypto/tls"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"math/big"
 	"net"
+	"net/http"
 	"net/smtp"
 	"net/url"
 	"strconv"
@@ -81,6 +85,17 @@ const (
 	passwordResetEmailCooldown = 30 * time.Second
 )
 
+const (
+	EmailProviderSMTP      = "smtp"
+	EmailProviderBrevo     = "brevo"
+	EmailProviderZeptoMail = "zeptomail"
+)
+
+const (
+	DefaultBrevoEmailAPIURL     = "https://api.brevo.com/v3/smtp/email"
+	DefaultZeptoMailEmailAPIURL = "https://api.zeptomail.com/v1.1/email"
+)
+
 // SMTPConfig SMTP配置
 type SMTPConfig struct {
 	Host     string
@@ -90,6 +105,22 @@ type SMTPConfig struct {
 	From     string
 	FromName string
 	UseTLS   bool
+}
+
+// HTTPEmailConfig configures transactional email providers that expose an HTTP API.
+type HTTPEmailConfig struct {
+	Provider string
+	APIKey   string
+	APIURL   string
+	From     string
+	FromName string
+}
+
+// EmailConfig is the provider-neutral delivery configuration.
+type EmailConfig struct {
+	Provider string
+	SMTP     *SMTPConfig
+	HTTP     *HTTPEmailConfig
 }
 
 // EmailService 邮件服务
@@ -104,6 +135,58 @@ func NewEmailService(settingRepo SettingRepository, cache EmailCache) *EmailServ
 		settingRepo: settingRepo,
 		cache:       cache,
 	}
+}
+
+func NormalizeEmailProvider(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case EmailProviderBrevo:
+		return EmailProviderBrevo
+	case EmailProviderZeptoMail:
+		return EmailProviderZeptoMail
+	default:
+		return EmailProviderSMTP
+	}
+}
+
+func IsHTTPEmailProvider(provider string) bool {
+	switch NormalizeEmailProvider(provider) {
+	case EmailProviderBrevo, EmailProviderZeptoMail:
+		return true
+	default:
+		return false
+	}
+}
+
+func DefaultEmailAPIURL(provider string) string {
+	switch NormalizeEmailProvider(provider) {
+	case EmailProviderBrevo:
+		return DefaultBrevoEmailAPIURL
+	case EmailProviderZeptoMail:
+		return DefaultZeptoMailEmailAPIURL
+	default:
+		return ""
+	}
+}
+
+func normalizeEmailAPIURL(provider, apiURL string) string {
+	if trimmed := strings.TrimSpace(apiURL); trimmed != "" {
+		return trimmed
+	}
+	return DefaultEmailAPIURL(provider)
+}
+
+func validateEmailAPIURL(apiURL string) error {
+	parsed, err := url.Parse(strings.TrimSpace(apiURL))
+	if err != nil {
+		return err
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("scheme must be http or https")
+	}
+	if parsed.Host == "" {
+		return fmt.Errorf("host is required")
+	}
+	return nil
 }
 
 // GetSMTPConfig 从数据库获取SMTP配置
@@ -123,6 +206,10 @@ func (s *EmailService) GetSMTPConfig(ctx context.Context) (*SMTPConfig, error) {
 		return nil, fmt.Errorf("get smtp settings: %w", err)
 	}
 
+	return smtpConfigFromSettings(settings)
+}
+
+func smtpConfigFromSettings(settings map[string]string) (*SMTPConfig, error) {
 	host := strings.TrimSpace(settings[SettingKeySMTPHost])
 	if host == "" {
 		return nil, ErrEmailNotConfigured
@@ -148,20 +235,89 @@ func (s *EmailService) GetSMTPConfig(ctx context.Context) (*SMTPConfig, error) {
 	}, nil
 }
 
+// GetEmailConfig 从数据库获取邮件服务配置
+func (s *EmailService) GetEmailConfig(ctx context.Context) (*EmailConfig, error) {
+	keys := []string{
+		SettingKeyEmailProvider,
+		SettingKeyEmailAPIKey,
+		SettingKeyEmailAPIURL,
+		SettingKeySMTPHost,
+		SettingKeySMTPPort,
+		SettingKeySMTPUsername,
+		SettingKeySMTPPassword,
+		SettingKeySMTPFrom,
+		SettingKeySMTPFromName,
+		SettingKeySMTPUseTLS,
+	}
+
+	settings, err := s.settingRepo.GetMultiple(ctx, keys)
+	if err != nil {
+		return nil, fmt.Errorf("get email settings: %w", err)
+	}
+
+	provider := NormalizeEmailProvider(settings[SettingKeyEmailProvider])
+	if provider == EmailProviderSMTP {
+		smtpConfig, err := smtpConfigFromSettings(settings)
+		if err != nil {
+			return nil, err
+		}
+		return &EmailConfig{Provider: EmailProviderSMTP, SMTP: smtpConfig}, nil
+	}
+
+	apiURL := normalizeEmailAPIURL(provider, settings[SettingKeyEmailAPIURL])
+	config := &HTTPEmailConfig{
+		Provider: provider,
+		APIKey:   strings.TrimSpace(settings[SettingKeyEmailAPIKey]),
+		APIURL:   apiURL,
+		From:     strings.TrimSpace(settings[SettingKeySMTPFrom]),
+		FromName: strings.TrimSpace(settings[SettingKeySMTPFromName]),
+	}
+	if err := validateHTTPEmailConfig(config); err != nil {
+		return nil, err
+	}
+	return &EmailConfig{Provider: provider, HTTP: config}, nil
+}
+
 // SendEmail 发送邮件（使用数据库中保存的配置）
 func (s *EmailService) SendEmail(ctx context.Context, to, subject, body string) error {
-	config, err := s.GetSMTPConfig(ctx)
+	config, err := s.GetEmailConfig(ctx)
 	if err != nil {
 		return err
 	}
-	return s.SendEmailWithConfig(config, to, subject, body)
+	return s.SendEmailWithDeliveryConfig(ctx, config, to, subject, body)
 }
 
 const smtpDialTimeout = 10 * time.Second
 const smtpIOTimeout = 20 * time.Second
+const emailHTTPTimeout = 20 * time.Second
+const maxEmailHTTPErrorBodyBytes = 4096
+
+var emailHTTPClient = &http.Client{Timeout: emailHTTPTimeout}
+
+// SendEmailWithDeliveryConfig 使用指定的邮件服务配置发送邮件
+func (s *EmailService) SendEmailWithDeliveryConfig(ctx context.Context, config *EmailConfig, to, subject, body string) error {
+	if config == nil {
+		return ErrEmailNotConfigured
+	}
+
+	provider := NormalizeEmailProvider(config.Provider)
+	if provider == EmailProviderSMTP {
+		return s.SendEmailWithConfig(config.SMTP, to, subject, body)
+	}
+
+	if config.HTTP == nil {
+		return ErrEmailNotConfigured
+	}
+	config.HTTP.Provider = provider
+	return s.sendHTTPEmail(ctx, config.HTTP, to, subject, body)
+}
 
 // SendEmailWithConfig 使用指定配置发送邮件
 func (s *EmailService) SendEmailWithConfig(config *SMTPConfig, to, subject, body string) error {
+	if config == nil {
+		return ErrEmailNotConfigured
+	}
+
 	// Sanitize all SMTP header fields to prevent header injection (CR/LF removal).
 	to = sanitizeEmailHeader(to)
 	subject = sanitizeEmailHeader(subject)
@@ -182,6 +338,158 @@ func (s *EmailService) SendEmailWithConfig(config *SMTPConfig, to, subject, body
 	}
 
 	return s.sendMailPlain(addr, auth, config.From, to, []byte(msg), config.Host)
+}
+
+func validateHTTPEmailConfig(config *HTTPEmailConfig) error {
+	if config == nil {
+		return ErrEmailNotConfigured
+	}
+	config.Provider = NormalizeEmailProvider(config.Provider)
+	config.APIKey = strings.TrimSpace(config.APIKey)
+	config.APIURL = normalizeEmailAPIURL(config.Provider, config.APIURL)
+	config.From = strings.TrimSpace(config.From)
+	config.FromName = strings.TrimSpace(config.FromName)
+
+	if !IsHTTPEmailProvider(config.Provider) {
+		return fmt.Errorf("unsupported email provider: %s", config.Provider)
+	}
+	if config.APIKey == "" {
+		return ErrEmailNotConfigured
+	}
+	if config.From == "" {
+		return ErrEmailNotConfigured
+	}
+	if config.APIURL == "" {
+		return ErrEmailNotConfigured
+	}
+	if err := validateEmailAPIURL(config.APIURL); err != nil {
+		return fmt.Errorf("email api url invalid: %w", err)
+	}
+	return nil
+}
+
+func (s *EmailService) sendHTTPEmail(ctx context.Context, config *HTTPEmailConfig, to, subject, body string) error {
+	if err := validateHTTPEmailConfig(config); err != nil {
+		return err
+	}
+
+	payload, err := buildHTTPEmailPayload(config, to, subject, body)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, config.APIURL, bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("build email api request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+
+	switch config.Provider {
+	case EmailProviderBrevo:
+		req.Header.Set("api-key", config.APIKey)
+	case EmailProviderZeptoMail:
+		req.Header.Set("Authorization", "Zoho-enczapikey "+config.APIKey)
+	default:
+		return fmt.Errorf("unsupported email provider: %s", config.Provider)
+	}
+
+	resp, err := emailHTTPClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("%s email api request: %w", config.Provider, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+
+	return fmt.Errorf("%s email api request failed: status=%d body=%s", config.Provider, resp.StatusCode, readEmailHTTPErrorBody(resp.Body))
+}
+
+func buildHTTPEmailPayload(config *HTTPEmailConfig, to, subject, body string) ([]byte, error) {
+	to = strings.TrimSpace(to)
+	subject = sanitizeEmailHeader(subject)
+	from := sanitizeEmailHeader(config.From)
+	fromName := sanitizeEmailHeader(config.FromName)
+
+	switch config.Provider {
+	case EmailProviderBrevo:
+		payload := brevoEmailPayload{
+			Sender: brevoEmailAddress{
+				Email: from,
+				Name:  fromName,
+			},
+			To: []brevoEmailAddress{
+				{Email: to},
+			},
+			Subject:     subject,
+			HTMLContent: body,
+		}
+		return json.Marshal(payload)
+	case EmailProviderZeptoMail:
+		payload := zeptoMailEmailPayload{
+			From: zeptoMailFromAddress{
+				Address: from,
+				Name:    fromName,
+			},
+			To: []zeptoMailRecipient{
+				{
+					EmailAddress: zeptoMailFromAddress{
+						Address: to,
+					},
+				},
+			},
+			Subject:  subject,
+			HTMLBody: body,
+		}
+		return json.Marshal(payload)
+	default:
+		return nil, fmt.Errorf("unsupported email provider: %s", config.Provider)
+	}
+}
+
+type brevoEmailPayload struct {
+	Sender      brevoEmailAddress   `json:"sender"`
+	To          []brevoEmailAddress `json:"to"`
+	Subject     string              `json:"subject"`
+	HTMLContent string              `json:"htmlContent"`
+}
+
+type brevoEmailAddress struct {
+	Email string `json:"email"`
+	Name  string `json:"name,omitempty"`
+}
+
+type zeptoMailEmailPayload struct {
+	From     zeptoMailFromAddress `json:"from"`
+	To       []zeptoMailRecipient `json:"to"`
+	Subject  string               `json:"subject"`
+	HTMLBody string               `json:"htmlbody"`
+}
+
+type zeptoMailFromAddress struct {
+	Address string `json:"address"`
+	Name    string `json:"name,omitempty"`
+}
+
+type zeptoMailRecipient struct {
+	EmailAddress zeptoMailFromAddress `json:"email_address"`
+}
+
+func readEmailHTTPErrorBody(body io.Reader) string {
+	if body == nil {
+		return ""
+	}
+	data, err := io.ReadAll(io.LimitReader(body, maxEmailHTTPErrorBodyBytes))
+	if err != nil {
+		return "unreadable"
+	}
+	text := strings.TrimSpace(string(data))
+	if text == "" {
+		return "empty"
+	}
+	return text
 }
 
 // sendMailPlain sends mail without TLS using a dialer with timeout.
@@ -416,6 +724,10 @@ func (s *EmailService) buildVerifyCodeEmailBody(code, siteName string) string {
 
 // TestSMTPConnectionWithConfig 使用指定配置测试SMTP连接
 func (s *EmailService) TestSMTPConnectionWithConfig(config *SMTPConfig) error {
+	if config == nil {
+		return ErrEmailNotConfigured
+	}
+
 	addr := fmt.Sprintf("%s:%d", config.Host, config.Port)
 
 	if config.UseTLS {
@@ -457,6 +769,31 @@ func (s *EmailService) TestSMTPConnectionWithConfig(config *SMTPConfig) error {
 	}
 
 	return client.Quit()
+}
+
+func (s *EmailService) TestEmailConnectionWithConfig(ctx context.Context, config *EmailConfig) error {
+	if config == nil {
+		return ErrEmailNotConfigured
+	}
+	provider := NormalizeEmailProvider(config.Provider)
+	if provider == EmailProviderSMTP {
+		return s.TestSMTPConnectionWithConfig(config.SMTP)
+	}
+	if config.HTTP == nil {
+		return ErrEmailNotConfigured
+	}
+	config.HTTP.Provider = provider
+	if err := validateHTTPEmailConfig(config.HTTP); err != nil {
+		return err
+	}
+	if ctx != nil {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+	}
+	return nil
 }
 
 // GeneratePasswordResetToken generates a secure 32-byte random token (64 hex characters)

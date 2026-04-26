@@ -350,7 +350,10 @@ export interface SystemSettings {
   backend_mode_enabled: boolean;
   custom_menu_items: CustomMenuItem[];
   custom_endpoints: CustomEndpoint[];
-  // SMTP settings
+  // Email service settings
+  email_provider: "smtp" | "brevo" | "zeptomail" | string;
+  email_api_url: string;
+  email_api_key_configured: boolean;
   smtp_host: string;
   smtp_port: number;
   smtp_username: string;
@@ -537,6 +540,9 @@ export interface UpdateSettingsRequest {
   backend_mode_enabled?: boolean;
   custom_menu_items?: CustomMenuItem[];
   custom_endpoints?: CustomEndpoint[];
+  email_provider?: "smtp" | "brevo" | "zeptomail" | string;
+  email_api_key?: string;
+  email_api_url?: string;
   smtp_host?: string;
   smtp_port?: number;
   smtp_username?: string;
@@ -675,19 +681,24 @@ export async function updateSettings(
 }
 
 /**
- * Test SMTP connection request
+ * Test email service connection request
  */
 export interface TestSmtpRequest {
+  email_provider?: "smtp" | "brevo" | "zeptomail" | string;
+  email_api_key?: string;
+  email_api_url?: string;
   smtp_host: string;
   smtp_port: number;
   smtp_username: string;
   smtp_password: string;
+  smtp_from_email?: string;
+  smtp_from_name?: string;
   smtp_use_tls: boolean;
 }
 
 /**
- * Test SMTP connection with provided config
- * @param config - SMTP configuration to test
+ * Test email service connection with provided config
+ * @param config - Email service configuration to test
  * @returns Test result message
  */
 export async function testSmtpConnection(
@@ -705,6 +716,9 @@ export async function testSmtpConnection(
  */
 export interface SendTestEmailRequest {
   email: string;
+  email_provider?: "smtp" | "brevo" | "zeptomail" | string;
+  email_api_key?: string;
+  email_api_url?: string;
   smtp_host: string;
   smtp_port: number;
   smtp_username: string;
@@ -715,8 +729,8 @@ export interface SendTestEmailRequest {
 }
 
 /**
- * Send test email with provided SMTP config
- * @param request - Email address and SMTP config
+ * Send test email with provided email service config
+ * @param request - Email address and email service config
  * @returns Test result message
  */
 export async function sendTestEmail(

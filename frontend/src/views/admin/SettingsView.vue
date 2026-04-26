@@ -4738,7 +4738,7 @@
             </div>
           </div>
 
-          <!-- SMTP Settings - Only show when email verification is enabled -->
+          <!-- Email Service Settings - Only show when email verification is enabled -->
           <div v-if="form.email_verify_enabled" class="card">
             <div
               class="flex items-center justify-between border-b border-gray-100 px-6 py-4 dark:border-dark-700"
@@ -4785,7 +4785,29 @@
               </button>
             </div>
             <div class="space-y-6 p-6">
-              <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+              <div>
+                <label
+                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  {{ t("admin.settings.smtp.provider") }}
+                </label>
+                <select v-model="form.email_provider" class="input">
+                  <option value="smtp">
+                    {{ t("admin.settings.smtp.providerSmtp") }}
+                  </option>
+                  <option value="brevo">
+                    {{ t("admin.settings.smtp.providerBrevo") }}
+                  </option>
+                  <option value="zeptomail">
+                    {{ t("admin.settings.smtp.providerZeptoMail") }}
+                  </option>
+                </select>
+              </div>
+
+              <div
+                v-if="form.email_provider === 'smtp'"
+                class="grid grid-cols-1 gap-6 md:grid-cols-2"
+              >
                 <div>
                   <label
                     class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
@@ -4856,6 +4878,60 @@
                     }}
                   </p>
                 </div>
+              </div>
+
+              <div v-else class="grid grid-cols-1 gap-6 md:grid-cols-2">
+                <div class="md:col-span-2">
+                  <label
+                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.smtp.apiUrl") }}
+                  </label>
+                  <input
+                    v-model="form.email_api_url"
+                    type="url"
+                    class="input"
+                    :placeholder="emailApiUrlPlaceholder(form.email_provider)"
+                  />
+                  <p
+                    v-if="form.email_provider === 'zeptomail'"
+                    class="mt-1.5 text-xs text-gray-500 dark:text-gray-400"
+                  >
+                    {{ t("admin.settings.smtp.zeptoMailUrlHint") }}
+                  </p>
+                </div>
+                <div>
+                  <label
+                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.smtp.apiKey") }}
+                  </label>
+                  <input
+                    v-model="form.email_api_key"
+                    type="password"
+                    class="input"
+                    autocomplete="new-password"
+                    autocapitalize="off"
+                    spellcheck="false"
+                    @keydown="emailApiKeyManuallyEdited = true"
+                    @paste="emailApiKeyManuallyEdited = true"
+                    :placeholder="
+                      form.email_api_key_configured
+                        ? t('admin.settings.smtp.apiKeyConfiguredPlaceholder')
+                        : t('admin.settings.smtp.apiKeyPlaceholder')
+                    "
+                  />
+                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{
+                      form.email_api_key_configured
+                        ? t("admin.settings.smtp.apiKeyConfiguredHint")
+                        : t("admin.settings.smtp.apiKeyHint")
+                    }}
+                  </p>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
                 <div>
                   <label
                     class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
@@ -4886,6 +4962,7 @@
 
               <!-- Use TLS Toggle -->
               <div
+                v-if="form.email_provider === 'smtp'"
                 class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700"
               >
                 <div>
@@ -5279,6 +5356,7 @@ const saving = ref(false);
 const testingSmtp = ref(false);
 const sendingTestEmail = ref(false);
 const smtpPasswordManuallyEdited = ref(false);
+const emailApiKeyManuallyEdited = ref(false);
 const testEmailAddress = ref("");
 const registrationEmailSuffixWhitelistTags = ref<string[]>([]);
 const registrationEmailSuffixWhitelistDraft = ref("");
@@ -5340,6 +5418,28 @@ const betaPolicyForm = reactive({
 const tablePageSizeMin = 5;
 const tablePageSizeMax = 1000;
 const tablePageSizeDefault = 20;
+const defaultBrevoEmailApiUrl = "https://api.brevo.com/v3/smtp/email";
+const defaultZeptoMailEmailApiUrl = "https://api.zeptomail.com/v1.1/email";
+
+type EmailProvider = "smtp" | "brevo" | "zeptomail";
+
+function defaultEmailApiUrl(provider: EmailProvider | string): string {
+  if (provider === "brevo") return defaultBrevoEmailApiUrl;
+  if (provider === "zeptomail") return defaultZeptoMailEmailApiUrl;
+  return "";
+}
+
+function emailApiUrlPlaceholder(provider: EmailProvider | string): string {
+  if (provider === "brevo") {
+    return t("admin.settings.smtp.apiUrlPlaceholderBrevo");
+  }
+  return t("admin.settings.smtp.apiUrlPlaceholderZeptoMail");
+}
+
+function effectiveEmailApiUrl(): string {
+  const url = form.email_api_url.trim();
+  return url || defaultEmailApiUrl(form.email_provider);
+}
 
 interface DefaultSubscriptionGroupOption {
   value: number;
@@ -5358,6 +5458,8 @@ type SettingsForm = Omit<
   | "wechat_connect_mobile_enabled"
 > & {
   smtp_password: string;
+  email_provider: EmailProvider;
+  email_api_key: string;
   turnstile_secret_key: string;
   linuxdo_connect_client_secret: string;
   wechat_connect_app_secret: string;
@@ -5435,6 +5537,10 @@ const form = reactive<SettingsForm>({
     description: string;
   }>,
   frontend_url: "",
+  email_provider: "smtp",
+  email_api_key: "",
+  email_api_key_configured: false,
+  email_api_url: "",
   smtp_host: "",
   smtp_port: 587,
   smtp_username: "",
@@ -6057,6 +6163,8 @@ async function loadSettings() {
     registrationEmailSuffixWhitelistDraft.value = "";
     form.smtp_password = "";
     smtpPasswordManuallyEdited.value = false;
+    form.email_api_key = "";
+    emailApiKeyManuallyEdited.value = false;
     form.turnstile_secret_key = "";
     form.linuxdo_connect_client_secret = "";
     form.wechat_connect_app_secret = "";
@@ -6335,6 +6443,9 @@ async function saveSettings() {
       custom_menu_items: form.custom_menu_items,
       custom_endpoints: form.custom_endpoints,
       frontend_url: form.frontend_url,
+      email_provider: form.email_provider,
+      email_api_key: form.email_api_key || undefined,
+      email_api_url: effectiveEmailApiUrl(),
       smtp_host: form.smtp_host,
       smtp_port: form.smtp_port,
       smtp_username: form.smtp_username,
@@ -6481,6 +6592,8 @@ async function saveSettings() {
     registrationEmailSuffixWhitelistDraft.value = "";
     form.smtp_password = "";
     smtpPasswordManuallyEdited.value = false;
+    form.email_api_key = "";
+    emailApiKeyManuallyEdited.value = false;
     form.turnstile_secret_key = "";
     form.linuxdo_connect_client_secret = "";
     form.wechat_connect_app_secret = "";
@@ -6530,20 +6643,28 @@ async function testSmtpConnection() {
     const smtpPasswordForTest = smtpPasswordManuallyEdited.value
       ? form.smtp_password
       : "";
+    const emailApiKeyForTest = emailApiKeyManuallyEdited.value
+      ? form.email_api_key
+      : "";
     const result = await adminAPI.settings.testSmtpConnection({
+      email_provider: form.email_provider,
+      email_api_key: emailApiKeyForTest,
+      email_api_url: effectiveEmailApiUrl(),
       smtp_host: form.smtp_host,
       smtp_port: form.smtp_port,
       smtp_username: form.smtp_username,
       smtp_password: smtpPasswordForTest,
+      smtp_from_email: form.smtp_from_email,
+      smtp_from_name: form.smtp_from_name,
       smtp_use_tls: form.smtp_use_tls,
     });
     // API returns { message: "..." } on success, errors are thrown as exceptions
     appStore.showSuccess(
-      result.message || t("admin.settings.smtpConnectionSuccess"),
+      result.message || t("admin.settings.emailConnectionSuccess"),
     );
   } catch (error: unknown) {
     appStore.showError(
-      extractApiErrorMessage(error, t("admin.settings.failedToTestSmtp")),
+      extractApiErrorMessage(error, t("admin.settings.failedToTestEmail")),
     );
   } finally {
     testingSmtp.value = false;
@@ -6561,8 +6682,14 @@ async function sendTestEmail() {
     const smtpPasswordForSend = smtpPasswordManuallyEdited.value
       ? form.smtp_password
       : "";
+    const emailApiKeyForSend = emailApiKeyManuallyEdited.value
+      ? form.email_api_key
+      : "";
     const result = await adminAPI.settings.sendTestEmail({
       email: testEmailAddress.value,
+      email_provider: form.email_provider,
+      email_api_key: emailApiKeyForSend,
+      email_api_url: effectiveEmailApiUrl(),
       smtp_host: form.smtp_host,
       smtp_port: form.smtp_port,
       smtp_username: form.smtp_username,
