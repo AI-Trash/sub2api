@@ -318,6 +318,8 @@ func (r *accountRepository) Update(ctx context.Context, account *service.Account
 		return nil
 	}
 
+	previous, _ := r.GetByID(ctx, account.ID)
+
 	builder := r.client.Account.UpdateOneID(account.ID).
 		SetName(account.Name).
 		SetNillableNotes(account.Notes).
@@ -401,6 +403,9 @@ func (r *accountRepository) Update(ctx context.Context, account *service.Account
 	// 普通账号编辑（如 model_mapping / credentials）也需要立即刷新单账号快照，
 	// 否则网关在 outbox worker 延迟或异常时仍可能读到旧配置。
 	r.syncSchedulerAccountSnapshot(ctx, account.ID)
+	if previous != nil && previous.IsSchedulable() {
+		r.notifyAccountSchedulingSuspended(ctx, account.ID, service.AccountSchedulingSuspension{})
+	}
 	return nil
 }
 
@@ -724,6 +729,10 @@ func (r *accountRepository) SetError(ctx context.Context, id int64, errorMsg str
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue set error failed: account=%d err=%v", id, err)
 	}
 	r.syncSchedulerAccountSnapshot(ctx, id)
+	r.notifyAccountSchedulingSuspended(ctx, id, service.AccountSchedulingSuspension{
+		Reason:  service.AccountSchedulingSuspensionReasonStatusError,
+		Message: errorMsg,
+	})
 	return nil
 }
 
@@ -783,6 +792,50 @@ func (r *accountRepository) syncSchedulerAccountSnapshots(ctx context.Context, a
 		if err := r.schedulerCache.SetAccount(ctx, account); err != nil {
 			logger.LegacyPrintf("repository.account", "[Scheduler] batch sync account snapshot write failed: id=%d err=%v", account.ID, err)
 		}
+	}
+}
+
+func (r *accountRepository) notifyAccountSchedulingSuspended(ctx context.Context, accountID int64, suspension service.AccountSchedulingSuspension) {
+	if accountID <= 0 {
+		return
+	}
+	account, err := r.GetByID(ctx, accountID)
+	if err != nil {
+		logger.LegacyPrintf("repository.account", "[AccountSchedulingWebhook] load account failed: account=%d err=%v", accountID, err)
+		return
+	}
+	if account == nil || account.IsSchedulable() {
+		return
+	}
+	service.EmitAccountSchedulingSuspended(context.Background(), &service.AccountSchedulingSuspensionEvent{
+		Account:    account,
+		Suspension: suspension,
+		OccurredAt: time.Now().UTC(),
+	})
+}
+
+func (r *accountRepository) notifyAccountsSchedulingSuspended(ctx context.Context, accountIDs []int64, suspension service.AccountSchedulingSuspension) {
+	if len(accountIDs) == 0 {
+		return
+	}
+	accounts, err := r.GetByIDs(ctx, accountIDs)
+	if err != nil {
+		logger.LegacyPrintf("repository.account", "[AccountSchedulingWebhook] load accounts failed: count=%d err=%v", len(accountIDs), err)
+		return
+	}
+	for _, account := range accounts {
+		if account == nil || account.IsSchedulable() {
+			continue
+		}
+		localSuspension := suspension
+		if localSuspension.Until == nil && localSuspension.Reason == service.AccountSchedulingSuspensionReasonExpiredAutoPause {
+			localSuspension.Until = account.ExpiresAt
+		}
+		service.EmitAccountSchedulingSuspended(context.Background(), &service.AccountSchedulingSuspensionEvent{
+			Account:    account,
+			Suspension: localSuspension,
+			OccurredAt: time.Now().UTC(),
+		})
 	}
 }
 
@@ -1059,6 +1112,11 @@ func (r *accountRepository) SetRateLimited(ctx context.Context, id int64, resetA
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue rate limit failed: account=%d err=%v", id, err)
 	}
 	r.syncSchedulerAccountSnapshot(ctx, id)
+	r.notifyAccountSchedulingSuspended(ctx, id, service.AccountSchedulingSuspension{
+		Reason:  service.AccountSchedulingSuspensionReasonRateLimited,
+		Until:   &resetAt,
+		Message: "account is rate limited",
+	})
 	return nil
 }
 
@@ -1120,11 +1178,17 @@ func (r *accountRepository) SetOverloaded(ctx context.Context, id int64, until t
 	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue overload failed: account=%d err=%v", id, err)
 	}
+	r.syncSchedulerAccountSnapshot(ctx, id)
+	r.notifyAccountSchedulingSuspended(ctx, id, service.AccountSchedulingSuspension{
+		Reason:  service.AccountSchedulingSuspensionReasonOverloaded,
+		Until:   &until,
+		Message: "account is overloaded",
+	})
 	return nil
 }
 
 func (r *accountRepository) SetTempUnschedulable(ctx context.Context, id int64, until time.Time, reason string) error {
-	_, err := r.sql.ExecContext(ctx, `
+	result, err := r.sql.ExecContext(ctx, `
 		UPDATE accounts
 		SET temp_unschedulable_until = $1,
 			temp_unschedulable_reason = $2,
@@ -1136,10 +1200,22 @@ func (r *accountRepository) SetTempUnschedulable(ctx context.Context, id int64, 
 	if err != nil {
 		return err
 	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return nil
+	}
 	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue temp unschedulable failed: account=%d err=%v", id, err)
 	}
 	r.syncSchedulerAccountSnapshot(ctx, id)
+	r.notifyAccountSchedulingSuspended(ctx, id, service.AccountSchedulingSuspension{
+		Reason:  service.AccountSchedulingSuspensionReasonTempUnschedulable,
+		Until:   &until,
+		Message: reason,
+	})
 	return nil
 }
 
@@ -1262,12 +1338,16 @@ func (r *accountRepository) SetSchedulable(ctx context.Context, id int64, schedu
 	}
 	if !schedulable {
 		r.syncSchedulerAccountSnapshot(ctx, id)
+		r.notifyAccountSchedulingSuspended(ctx, id, service.AccountSchedulingSuspension{
+			Reason:  service.AccountSchedulingSuspensionReasonManualPause,
+			Message: "account schedulable flag is false",
+		})
 	}
 	return nil
 }
 
 func (r *accountRepository) AutoPauseExpiredAccounts(ctx context.Context, now time.Time) (int64, error) {
-	result, err := r.sql.ExecContext(ctx, `
+	rows, err := r.sql.QueryContext(ctx, `
 		UPDATE accounts
 		SET schedulable = FALSE,
 			updated_at = NOW()
@@ -1276,20 +1356,34 @@ func (r *accountRepository) AutoPauseExpiredAccounts(ctx context.Context, now ti
 			AND auto_pause_on_expired = TRUE
 			AND expires_at IS NOT NULL
 			AND expires_at <= $1
+		RETURNING id
 	`, now)
 	if err != nil {
 		return 0, err
 	}
-	rows, err := result.RowsAffected()
-	if err != nil {
+	defer rows.Close()
+
+	ids := make([]int64, 0)
+	for rows.Next() {
+		var id int64
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			return 0, scanErr
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
 		return 0, err
 	}
-	if rows > 0 {
+	if len(ids) > 0 {
 		if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventFullRebuild, nil, nil, nil); err != nil {
 			logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue auto pause rebuild failed: err=%v", err)
 		}
+		r.notifyAccountsSchedulingSuspended(ctx, ids, service.AccountSchedulingSuspension{
+			Reason:  service.AccountSchedulingSuspensionReasonExpiredAutoPause,
+			Message: "account expired and auto pause is enabled",
+		})
 	}
-	return rows, nil
+	return int64(len(ids)), nil
 }
 
 func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates map[string]any) error {
@@ -1472,6 +1566,23 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		}
 		if shouldSync {
 			r.syncSchedulerAccountSnapshots(ctx, ids)
+		}
+		if updates.Status != nil && (*updates.Status == service.StatusError || *updates.Status == service.StatusDisabled) {
+			reason := service.AccountSchedulingSuspensionReasonStatusError
+			message := "account status is error"
+			if *updates.Status == service.StatusDisabled {
+				reason = service.AccountSchedulingSuspensionReasonStatusDisabled
+				message = "account status is disabled"
+			}
+			r.notifyAccountsSchedulingSuspended(ctx, ids, service.AccountSchedulingSuspension{
+				Reason:  reason,
+				Message: message,
+			})
+		} else if updates.Schedulable != nil && !*updates.Schedulable {
+			r.notifyAccountsSchedulingSuspended(ctx, ids, service.AccountSchedulingSuspension{
+				Reason:  service.AccountSchedulingSuspensionReasonManualPause,
+				Message: "account schedulable flag is false",
+			})
 		}
 	}
 	return rows, nil
@@ -1977,16 +2088,20 @@ func (r *accountRepository) IncrementQuotaUsed(ctx context.Context, id int64, am
 		WHERE id = $2 AND deleted_at IS NULL
 		RETURNING
 			COALESCE((extra->>'quota_used')::numeric, 0),
-			COALESCE((extra->>'quota_limit')::numeric, 0)`,
+			COALESCE((extra->>'quota_limit')::numeric, 0),
+			COALESCE((extra->>'quota_daily_used')::numeric, 0),
+			COALESCE((extra->>'quota_daily_limit')::numeric, 0),
+			COALESCE((extra->>'quota_weekly_used')::numeric, 0),
+			COALESCE((extra->>'quota_weekly_limit')::numeric, 0)`,
 		amount, id)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = rows.Close() }()
 
-	var newUsed, limit float64
+	var newUsed, limit, newDailyUsed, dailyLimit, newWeeklyUsed, weeklyLimit float64
 	if rows.Next() {
-		if err := rows.Scan(&newUsed, &limit); err != nil {
+		if err := rows.Scan(&newUsed, &limit, &newDailyUsed, &dailyLimit, &newWeeklyUsed, &weeklyLimit); err != nil {
 			return err
 		}
 	}
@@ -1999,6 +2114,26 @@ func (r *accountRepository) IncrementQuotaUsed(ctx context.Context, id int64, am
 		if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
 			logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue quota exceeded failed: account=%d err=%v", id, err)
 		}
+		r.notifyAccountSchedulingSuspended(ctx, id, service.AccountSchedulingSuspension{
+			Reason:  service.AccountSchedulingSuspensionReasonQuotaExceeded,
+			Message: "account quota exceeded",
+		})
+	} else if dailyLimit > 0 && newDailyUsed >= dailyLimit && (newDailyUsed-amount) < dailyLimit {
+		if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
+			logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue daily quota exceeded failed: account=%d err=%v", id, err)
+		}
+		r.notifyAccountSchedulingSuspended(ctx, id, service.AccountSchedulingSuspension{
+			Reason:  service.AccountSchedulingSuspensionReasonQuotaExceeded,
+			Message: "account daily quota exceeded",
+		})
+	} else if weeklyLimit > 0 && newWeeklyUsed >= weeklyLimit && (newWeeklyUsed-amount) < weeklyLimit {
+		if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
+			logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue weekly quota exceeded failed: account=%d err=%v", id, err)
+		}
+		r.notifyAccountSchedulingSuspended(ctx, id, service.AccountSchedulingSuspension{
+			Reason:  service.AccountSchedulingSuspensionReasonQuotaExceeded,
+			Message: "account weekly quota exceeded",
+		})
 	}
 	return nil
 }
