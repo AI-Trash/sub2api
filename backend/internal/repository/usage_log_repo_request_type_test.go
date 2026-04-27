@@ -414,7 +414,7 @@ func TestUsageLogRepositoryGetAllGroupUsageSummaryUsesAverageWindowPercents(t *t
 	repo := &usageLogRepository{sql: db}
 
 	todayStart := time.Date(2026, 4, 27, 0, 0, 0, 0, time.UTC)
-	mock.ExpectQuery("WITH usage_costs AS[\\s\\S]*AVG\\(").
+	mock.ExpectQuery("WITH usage_costs AS[\\s\\S]*AVG\\([\\s\\S]*ELSE 0[\\s\\S]*window_5h_percent[\\s\\S]*AVG\\([\\s\\S]*ELSE 0[\\s\\S]*window_weekly_percent").
 		WithArgs(todayStart).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"group_id", "today_cost", "total_cost", "window_5h_percent", "window_weekly_percent",

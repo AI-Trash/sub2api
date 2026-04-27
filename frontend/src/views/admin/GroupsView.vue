@@ -3408,15 +3408,17 @@ const loadGroups = async () => {
 };
 
 const formatCost = (cost: number): string => {
-  if (cost >= 1000) return cost.toFixed(0);
-  if (cost >= 100) return cost.toFixed(1);
-  return cost.toFixed(2);
+  const value = Number.isFinite(cost) ? cost : 0;
+  const absValue = Math.abs(value);
+  if (absValue >= 1000) return value.toFixed(2);
+  if (absValue >= 0.01) return value.toFixed(4);
+  return value.toFixed(6);
 };
 
 const formatPercent = (value: number): string => {
   const percent = Number.isFinite(value) ? value : 0;
   if (Math.abs(percent) >= 1000) return `${percent.toFixed(0)}%`;
-  return `${percent.toFixed(1)}%`;
+  return `${percent.toFixed(2)}%`;
 };
 
 const loadUsageSummary = async () => {

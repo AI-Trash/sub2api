@@ -3242,6 +3242,7 @@ func (r *usageLogRepository) GetUserBreakdownStats(ctx context.Context, startTim
 }
 
 // GetAllGroupUsageSummary returns today's/cumulative actual_cost and average account window percentages for every group.
+// Window-capable accounts with no current usage sample are counted as 0%, so unused windows are part of the average.
 // todayStart is the start-of-day in the caller's timezone (UTC-based).
 // TODO(perf): This query scans ALL usage_logs rows for total_cost aggregation.
 // When usage_logs exceeds ~1M rows, consider adding a short-lived cache (30s)
@@ -3264,20 +3265,34 @@ func (r *usageLogRepository) GetAllGroupUsageSummary(ctx context.Context, todayS
 					CASE
 						WHEN a.platform = 'openai'
 							AND a.type = 'oauth'
-							AND (a.extra->>'codex_5h_used_percent') ~ '^[+-]?([0-9]+(\.[0-9]+)?|\.[0-9]+)$'
-							AND (
-								NULLIF(a.extra->>'codex_5h_reset_at', '') IS NULL
-								OR (
-									(a.extra->>'codex_5h_reset_at') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
-									AND (a.extra->>'codex_5h_reset_at')::timestamptz > NOW()
-								)
-							)
-							THEN (a.extra->>'codex_5h_used_percent')::double precision
+							THEN
+								CASE
+									WHEN NULLIF(a.extra->>'codex_5h_reset_at', '') IS NULL
+										OR (
+											(a.extra->>'codex_5h_reset_at') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
+											AND (a.extra->>'codex_5h_reset_at')::timestamptz > NOW()
+										)
+										THEN
+											CASE
+												WHEN (a.extra->>'codex_5h_used_percent') ~ '^[+-]?([0-9]+(\.[0-9]+)?|\.[0-9]+)$'
+													THEN (a.extra->>'codex_5h_used_percent')::numeric
+												ELSE 0
+											END
+									ELSE 0
+								END
 						WHEN a.platform = 'anthropic'
 							AND a.type IN ('oauth', 'setup-token')
-							AND (a.extra->>'session_window_utilization') ~ '^[+-]?([0-9]+(\.[0-9]+)?|\.[0-9]+)$'
-							AND (a.session_window_end IS NULL OR a.session_window_end > NOW())
-							THEN (a.extra->>'session_window_utilization')::double precision * 100
+							THEN
+								CASE
+									WHEN a.session_window_end IS NULL OR a.session_window_end > NOW()
+										THEN
+											CASE
+												WHEN (a.extra->>'session_window_utilization') ~ '^[+-]?([0-9]+(\.[0-9]+)?|\.[0-9]+)$'
+													THEN (a.extra->>'session_window_utilization')::numeric * 100
+												ELSE 0
+											END
+									ELSE 0
+								END
 						ELSE NULL
 					END
 				), 0) AS window_5h_percent,
@@ -3285,25 +3300,37 @@ func (r *usageLogRepository) GetAllGroupUsageSummary(ctx context.Context, todayS
 					CASE
 						WHEN a.platform = 'openai'
 							AND a.type = 'oauth'
-							AND (a.extra->>'codex_7d_used_percent') ~ '^[+-]?([0-9]+(\.[0-9]+)?|\.[0-9]+)$'
-							AND (
-								NULLIF(a.extra->>'codex_7d_reset_at', '') IS NULL
-								OR (
-									(a.extra->>'codex_7d_reset_at') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
-									AND (a.extra->>'codex_7d_reset_at')::timestamptz > NOW()
-								)
-							)
-							THEN (a.extra->>'codex_7d_used_percent')::double precision
+							THEN
+								CASE
+									WHEN NULLIF(a.extra->>'codex_7d_reset_at', '') IS NULL
+										OR (
+											(a.extra->>'codex_7d_reset_at') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
+											AND (a.extra->>'codex_7d_reset_at')::timestamptz > NOW()
+										)
+										THEN
+											CASE
+												WHEN (a.extra->>'codex_7d_used_percent') ~ '^[+-]?([0-9]+(\.[0-9]+)?|\.[0-9]+)$'
+													THEN (a.extra->>'codex_7d_used_percent')::numeric
+												ELSE 0
+											END
+									ELSE 0
+								END
 						WHEN a.platform = 'anthropic'
 							AND a.type IN ('oauth', 'setup-token')
-							AND (a.extra->>'passive_usage_7d_utilization') ~ '^[+-]?([0-9]+(\.[0-9]+)?|\.[0-9]+)$'
-							AND (
-								(a.extra->>'passive_usage_7d_reset') IS NULL
-								OR NOT ((a.extra->>'passive_usage_7d_reset') ~ '^[+-]?([0-9]+(\.[0-9]+)?|\.[0-9]+)$')
-								OR (a.extra->>'passive_usage_7d_reset')::double precision <= 0
-								OR to_timestamp((a.extra->>'passive_usage_7d_reset')::double precision) > NOW()
-							)
-							THEN (a.extra->>'passive_usage_7d_utilization')::double precision * 100
+							THEN
+								CASE
+									WHEN (a.extra->>'passive_usage_7d_reset') IS NULL
+										OR NOT ((a.extra->>'passive_usage_7d_reset') ~ '^[+-]?([0-9]+(\.[0-9]+)?|\.[0-9]+)$')
+										OR (a.extra->>'passive_usage_7d_reset')::double precision <= 0
+										OR to_timestamp((a.extra->>'passive_usage_7d_reset')::double precision) > NOW()
+										THEN
+											CASE
+												WHEN (a.extra->>'passive_usage_7d_utilization') ~ '^[+-]?([0-9]+(\.[0-9]+)?|\.[0-9]+)$'
+													THEN (a.extra->>'passive_usage_7d_utilization')::numeric * 100
+												ELSE 0
+											END
+									ELSE 0
+								END
 						ELSE NULL
 					END
 				), 0) AS window_weekly_percent
