@@ -3241,7 +3241,7 @@ func (r *usageLogRepository) GetUserBreakdownStats(ctx context.Context, startTim
 	return results, nil
 }
 
-// GetAllGroupUsageSummary returns today's/cumulative actual_cost and simple-sum account window percentages for every group.
+// GetAllGroupUsageSummary returns today's/cumulative actual_cost and average account window percentages for every group.
 // todayStart is the start-of-day in the caller's timezone (UTC-based).
 // TODO(perf): This query scans ALL usage_logs rows for total_cost aggregation.
 // When usage_logs exceeds ~1M rows, consider adding a short-lived cache (30s)
@@ -3260,7 +3260,7 @@ func (r *usageLogRepository) GetAllGroupUsageSummary(ctx context.Context, todayS
 		account_windows AS (
 			SELECT
 				ag.group_id,
-				COALESCE(SUM(
+				COALESCE(AVG(
 					CASE
 						WHEN a.platform = 'openai'
 							AND a.type = 'oauth'
@@ -3278,10 +3278,10 @@ func (r *usageLogRepository) GetAllGroupUsageSummary(ctx context.Context, todayS
 							AND (a.extra->>'session_window_utilization') ~ '^[+-]?([0-9]+(\.[0-9]+)?|\.[0-9]+)$'
 							AND (a.session_window_end IS NULL OR a.session_window_end > NOW())
 							THEN (a.extra->>'session_window_utilization')::double precision * 100
-						ELSE 0
+						ELSE NULL
 					END
 				), 0) AS window_5h_percent,
-				COALESCE(SUM(
+				COALESCE(AVG(
 					CASE
 						WHEN a.platform = 'openai'
 							AND a.type = 'oauth'
@@ -3304,7 +3304,7 @@ func (r *usageLogRepository) GetAllGroupUsageSummary(ctx context.Context, todayS
 								OR to_timestamp((a.extra->>'passive_usage_7d_reset')::double precision) > NOW()
 							)
 							THEN (a.extra->>'passive_usage_7d_utilization')::double precision * 100
-						ELSE 0
+						ELSE NULL
 					END
 				), 0) AS window_weekly_percent
 			FROM account_groups ag
