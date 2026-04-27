@@ -129,6 +129,38 @@
             </div>
           </div>
 
+          <div v-if="props.showServiceTierMultipliers" class="mt-3">
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400">
+              {{ t('admin.channels.form.serviceTierMultipliers', 'Service tier 倍率') }}
+            </label>
+            <div class="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div>
+                <label class="text-xs text-gray-400">priority</label>
+                <input
+                  :value="entry.service_tier_multipliers?.priority ?? ''"
+                  @input="emitServiceTierMultiplier('priority', ($event.target as HTMLInputElement).value)"
+                  type="number"
+                  step="any"
+                  min="0"
+                  class="input mt-0.5 text-sm"
+                  :placeholder="t('admin.channels.form.defaultMultiplier', '默认')"
+                />
+              </div>
+              <div>
+                <label class="text-xs text-gray-400">flex</label>
+                <input
+                  :value="entry.service_tier_multipliers?.flex ?? ''"
+                  @input="emitServiceTierMultiplier('flex', ($event.target as HTMLInputElement).value)"
+                  type="number"
+                  step="any"
+                  min="0"
+                  class="input mt-0.5 text-sm"
+                  :placeholder="t('admin.channels.form.defaultMultiplier', '默认')"
+                />
+              </div>
+            </div>
+          </div>
+
           <!-- Token intervals -->
           <div class="mt-3">
             <div class="flex items-center justify-between">
@@ -243,6 +275,7 @@ const { t } = useI18n()
 const props = defineProps<{
   entry: PricingFormEntry
   platform?: string
+  showServiceTierMultipliers?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -266,6 +299,19 @@ const billingModeLabel = computed(() => {
 
 function emitField(field: keyof PricingFormEntry, value: string) {
   emit('update', { ...props.entry, [field]: value === '' ? null : value })
+}
+
+function emitServiceTierMultiplier(tier: string, value: string) {
+  const multipliers = { ...(props.entry.service_tier_multipliers || {}) }
+  if (value === '') {
+    delete multipliers[tier]
+  } else {
+    multipliers[tier] = value
+  }
+  emit('update', {
+    ...props.entry,
+    service_tier_multipliers: Object.keys(multipliers).length > 0 ? multipliers : null
+  })
 }
 
 function addInterval() {

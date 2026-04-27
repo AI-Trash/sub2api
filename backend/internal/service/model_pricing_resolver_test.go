@@ -276,6 +276,48 @@ func TestResolve_WithChannelOverride_TokenWithIntervals(t *testing.T) {
 	require.InDelta(t, 16e-6, iv2.OutputPricePerToken, 1e-12)
 }
 
+func TestResolve_WithChannelOverride_ServiceTierMultipliers(t *testing.T) {
+	r := newResolverWithChannel(t, []ChannelModelPricing{{
+		Platform:               "anthropic",
+		Models:                 []string{"claude-sonnet-4"},
+		BillingMode:            BillingModeToken,
+		InputPrice:             testPtrFloat64(10e-6),
+		OutputPrice:            testPtrFloat64(50e-6),
+		ServiceTierMultipliers: map[string]float64{" Priority ": 1.5, "flex": 0.75},
+	}})
+
+	resolved := r.Resolve(context.Background(), PricingInput{
+		Model:   "claude-sonnet-4",
+		GroupID: groupIDPtr(),
+	})
+
+	require.NotNil(t, resolved)
+	require.Equal(t, map[string]float64{"priority": 1.5, "flex": 0.75}, resolved.ServiceTierMultipliers)
+	require.Equal(t, resolved.ServiceTierMultipliers, resolved.BasePricing.ServiceTierMultipliers)
+}
+
+func TestResolve_WithChannelOverride_IntervalCarriesServiceTierMultipliers(t *testing.T) {
+	r := newResolverWithChannel(t, []ChannelModelPricing{{
+		Platform:               "anthropic",
+		Models:                 []string{"claude-sonnet-4"},
+		BillingMode:            BillingModeToken,
+		ServiceTierMultipliers: map[string]float64{"priority": 1.25},
+		Intervals: []PricingInterval{
+			{MinTokens: 0, MaxTokens: testPtrInt(128000), InputPrice: testPtrFloat64(2e-6), OutputPrice: testPtrFloat64(8e-6)},
+		},
+	}})
+
+	resolved := r.Resolve(context.Background(), PricingInput{
+		Model:   "claude-sonnet-4",
+		GroupID: groupIDPtr(),
+	})
+
+	iv := r.GetIntervalPricing(resolved, 50000)
+
+	require.NotNil(t, iv)
+	require.Equal(t, map[string]float64{"priority": 1.25}, iv.ServiceTierMultipliers)
+}
+
 func TestResolve_WithChannelOverride_TokenNilBasePricing(t *testing.T) {
 	// Base pricing is nil (unknown model), channel has flat prices → creates new BasePricing.
 	r := newResolverWithChannel(t, []ChannelModelPricing{{

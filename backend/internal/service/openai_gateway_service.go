@@ -1109,6 +1109,31 @@ func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string
 	return match(string(upstreamBody))
 }
 
+func isOpenAICodexChatGPTModelUnsupportedError(upstreamStatusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	if upstreamStatusCode != http.StatusBadRequest {
+		return false
+	}
+
+	match := func(text string) bool {
+		lower := strings.ToLower(strings.TrimSpace(text))
+		return strings.Contains(lower, "not supported when using codex with a chatgpt account")
+	}
+
+	if match(upstreamMsg) {
+		return true
+	}
+	if len(upstreamBody) == 0 {
+		return false
+	}
+	if match(gjson.GetBytes(upstreamBody, "detail").String()) {
+		return true
+	}
+	if match(gjson.GetBytes(upstreamBody, "error.message").String()) {
+		return true
+	}
+	return match(string(upstreamBody))
+}
+
 // ExtractSessionID extracts the raw session ID from headers or body without hashing.
 // Used by ForwardAsAnthropic to pass as prompt_cache_key for upstream cache.
 func (s *OpenAIGatewayService) ExtractSessionID(c *gin.Context, body []byte) string {
@@ -1961,7 +1986,8 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode i
 	if s.shouldFailoverUpstreamError(statusCode) {
 		return true
 	}
-	return isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody)
+	return isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody) ||
+		isOpenAICodexChatGPTModelUnsupportedError(statusCode, upstreamMsg, upstreamBody)
 }
 
 func (s *OpenAIGatewayService) handleFailoverSideEffects(ctx context.Context, resp *http.Response, account *Account) {

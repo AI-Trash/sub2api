@@ -73,20 +73,21 @@ type AccountStatsPricingRule struct {
 
 // ChannelModelPricing 渠道模型定价条目
 type ChannelModelPricing struct {
-	ID               int64
-	ChannelID        int64
-	Platform         string            // 所属平台（anthropic/openai/gemini/...）
-	Models           []string          // 绑定的模型列表
-	BillingMode      BillingMode       // 计费模式
-	InputPrice       *float64          // 每 token 输入价格（USD）— 向后兼容 flat 定价
-	OutputPrice      *float64          // 每 token 输出价格（USD）
-	CacheWritePrice  *float64          // 缓存写入价格
-	CacheReadPrice   *float64          // 缓存读取价格
-	ImageOutputPrice *float64          // 图片输出价格（向后兼容）
-	PerRequestPrice  *float64          // 默认按次计费价格（USD）
-	Intervals        []PricingInterval // 区间定价列表
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID                     int64
+	ChannelID              int64
+	Platform               string             // 所属平台（anthropic/openai/gemini/...）
+	Models                 []string           // 绑定的模型列表
+	BillingMode            BillingMode        // 计费模式
+	InputPrice             *float64           // 每 token 输入价格（USD）— 向后兼容 flat 定价
+	OutputPrice            *float64           // 每 token 输出价格（USD）
+	CacheWritePrice        *float64           // 缓存写入价格
+	CacheReadPrice         *float64           // 缓存读取价格
+	ImageOutputPrice       *float64           // 图片输出价格（向后兼容）
+	PerRequestPrice        *float64           // 默认按次计费价格（USD）
+	Intervals              []PricingInterval  // 区间定价列表
+	ServiceTierMultipliers map[string]float64 // service tier → 费用倍率；未配置时沿用默认计费逻辑
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
 // PricingInterval 定价区间（token 区间 / 按次分层 / 图片分辨率分层）
@@ -176,11 +177,49 @@ func (p ChannelModelPricing) Clone() ChannelModelPricing {
 		cp.Models = make([]string, len(p.Models))
 		copy(cp.Models, p.Models)
 	}
+	if p.ServiceTierMultipliers != nil {
+		cp.ServiceTierMultipliers = make(map[string]float64, len(p.ServiceTierMultipliers))
+		for tier, multiplier := range p.ServiceTierMultipliers {
+			cp.ServiceTierMultipliers[tier] = multiplier
+		}
+	}
 	if p.Intervals != nil {
 		cp.Intervals = make([]PricingInterval, len(p.Intervals))
 		copy(cp.Intervals, p.Intervals)
 	}
 	return cp
+}
+
+// NormalizeServiceTierMultipliers returns a copy with normalized tier names.
+// Empty tier names are ignored; nil or empty maps return nil so JSON/API payloads stay compact.
+func NormalizeServiceTierMultipliers(input map[string]float64) map[string]float64 {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]float64, len(input))
+	keys := make([]string, 0, len(input))
+	for tier := range input {
+		keys = append(keys, tier)
+	}
+	sort.Strings(keys)
+	for _, tier := range keys {
+		normalized := normalizeBillingServiceTier(tier)
+		if normalized == "" {
+			continue
+		}
+		if _, exists := out[normalized]; exists && !isCanonicalServiceTierKey(tier, normalized) {
+			continue
+		}
+		out[normalized] = input[tier]
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func isCanonicalServiceTierKey(raw, normalized string) bool {
+	return strings.TrimSpace(raw) == normalized
 }
 
 // Clone 返回 Channel 的深拷贝

@@ -57,6 +57,7 @@ type ModelPricing struct {
 	LongContextInputMultiplier     float64 // 长上下文整次会话输入倍率
 	LongContextOutputMultiplier    float64 // 长上下文整次会话输出倍率
 	ImageOutputPricePerToken       float64 // 图片输出 token 价格 (USD)
+	ServiceTierMultipliers         map[string]float64
 }
 
 const (
@@ -66,7 +67,11 @@ const (
 )
 
 func normalizeBillingServiceTier(serviceTier string) string {
-	return strings.ToLower(strings.TrimSpace(serviceTier))
+	tier := strings.ToLower(strings.TrimSpace(serviceTier))
+	if tier == "fast" {
+		return "priority"
+	}
+	return tier
 }
 
 func usePriorityServiceTierPricing(serviceTier string, pricing *ModelPricing) bool {
@@ -85,6 +90,18 @@ func serviceTierCostMultiplier(serviceTier string) float64 {
 	default:
 		return 1.0
 	}
+}
+
+func configuredServiceTierCostMultiplier(serviceTier string, pricing *ModelPricing) (float64, bool) {
+	if pricing == nil || len(pricing.ServiceTierMultipliers) == 0 {
+		return 0, false
+	}
+	tier := normalizeBillingServiceTier(serviceTier)
+	if tier == "" {
+		return 0, false
+	}
+	multiplier, ok := pricing.ServiceTierMultipliers[tier]
+	return multiplier, ok
 }
 
 // UsageTokens 使用的token数量
@@ -381,6 +398,7 @@ func (s *BillingService) GetModelPricingWithChannel(model string, channelPricing
 	if channelPricing.ImageOutputPrice != nil {
 		pricing.ImageOutputPricePerToken = *channelPricing.ImageOutputPrice
 	}
+	pricing.ServiceTierMultipliers = NormalizeServiceTierMultipliers(channelPricing.ServiceTierMultipliers)
 	return pricing, nil
 }
 
@@ -473,7 +491,9 @@ func (s *BillingService) computeTokenBreakdown(
 	cacheReadPrice := pricing.CacheReadPricePerToken
 	tierMultiplier := 1.0
 
-	if usePriorityServiceTierPricing(serviceTier, pricing) {
+	if configuredMultiplier, ok := configuredServiceTierCostMultiplier(serviceTier, pricing); ok {
+		tierMultiplier = configuredMultiplier
+	} else if usePriorityServiceTierPricing(serviceTier, pricing) {
 		if pricing.InputPricePerTokenPriority > 0 {
 			inputPrice = pricing.InputPricePerTokenPriority
 		}

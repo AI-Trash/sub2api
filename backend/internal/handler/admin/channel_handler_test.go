@@ -48,6 +48,10 @@ func TestChannelToResponse_FullChannel(t *testing.T) {
 				CacheWritePrice: float64Ptr(0.005),
 				CacheReadPrice:  float64Ptr(0.002),
 				PerRequestPrice: float64Ptr(0.5),
+				ServiceTierMultipliers: map[string]float64{
+					"priority": 1.5,
+					"flex":     0.75,
+				},
 			},
 		},
 		ModelMapping: map[string]map[string]string{
@@ -83,6 +87,7 @@ func TestChannelToResponse_FullChannel(t *testing.T) {
 	require.Equal(t, float64Ptr(0.005), p.CacheWritePrice)
 	require.Equal(t, float64Ptr(0.002), p.CacheReadPrice)
 	require.Equal(t, float64Ptr(0.5), p.PerRequestPrice)
+	require.Equal(t, map[string]float64{"priority": 1.5, "flex": 0.75}, p.ServiceTierMultipliers)
 	require.Empty(t, p.Intervals)
 }
 
@@ -325,6 +330,10 @@ func TestPricingRequestToService_WithAllFields(t *testing.T) {
 			CacheReadPrice:   float64Ptr(0.002),
 			ImageOutputPrice: float64Ptr(0.04),
 			PerRequestPrice:  float64Ptr(0.5),
+			ServiceTierMultipliers: map[string]float64{
+				" Priority ": 1.25,
+				"flex":       0.75,
+			},
 		},
 	}
 
@@ -340,6 +349,7 @@ func TestPricingRequestToService_WithAllFields(t *testing.T) {
 	require.Equal(t, float64Ptr(0.002), r.CacheReadPrice)
 	require.Equal(t, float64Ptr(0.04), r.ImageOutputPrice)
 	require.Equal(t, float64Ptr(0.5), r.PerRequestPrice)
+	require.Equal(t, map[string]float64{"priority": 1.25, "flex": 0.75}, r.ServiceTierMultipliers)
 }
 
 func TestPricingRequestToService_WithIntervals(t *testing.T) {

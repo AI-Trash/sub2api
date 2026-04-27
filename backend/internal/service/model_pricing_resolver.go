@@ -34,6 +34,9 @@ type ResolvedPricing struct {
 
 	// 是否支持缓存细分
 	SupportsCacheBreakdown bool
+
+	// ServiceTierMultipliers stores channel-configured service tier cost multipliers.
+	ServiceTierMultipliers map[string]float64
 }
 
 // ModelPricingResolver 统一模型定价解析器。
@@ -135,6 +138,8 @@ func (r *ModelPricingResolver) applyChannelOverrides(ctx context.Context, groupI
 
 // applyTokenOverrides 应用 token 模式的渠道覆盖
 func (r *ModelPricingResolver) applyTokenOverrides(chPricing *ChannelModelPricing, resolved *ResolvedPricing) {
+	resolved.ServiceTierMultipliers = NormalizeServiceTierMultipliers(chPricing.ServiceTierMultipliers)
+
 	// 过滤掉所有价格字段都为空的无效 interval
 	validIntervals := filterValidIntervals(chPricing.Intervals)
 
@@ -169,6 +174,7 @@ func (r *ModelPricingResolver) applyTokenOverrides(chPricing *ChannelModelPricin
 	if chPricing.ImageOutputPrice != nil {
 		resolved.BasePricing.ImageOutputPricePerToken = *chPricing.ImageOutputPrice
 	}
+	resolved.BasePricing.ServiceTierMultipliers = resolved.ServiceTierMultipliers
 }
 
 // applyRequestTierOverrides 应用按次/图片模式的渠道覆盖
@@ -197,15 +203,23 @@ func filterValidIntervals(intervals []PricingInterval) []PricingInterval {
 // 如果有区间列表，找到匹配区间并构造 ModelPricing；否则直接返回 BasePricing。
 func (r *ModelPricingResolver) GetIntervalPricing(resolved *ResolvedPricing, totalContextTokens int) *ModelPricing {
 	if len(resolved.Intervals) == 0 {
+		if resolved.BasePricing != nil {
+			resolved.BasePricing.ServiceTierMultipliers = resolved.ServiceTierMultipliers
+		}
 		return resolved.BasePricing
 	}
 
 	iv := FindMatchingInterval(resolved.Intervals, totalContextTokens)
 	if iv == nil {
+		if resolved.BasePricing != nil {
+			resolved.BasePricing.ServiceTierMultipliers = resolved.ServiceTierMultipliers
+		}
 		return resolved.BasePricing
 	}
 
-	return intervalToModelPricing(iv, resolved.SupportsCacheBreakdown)
+	pricing := intervalToModelPricing(iv, resolved.SupportsCacheBreakdown)
+	pricing.ServiceTierMultipliers = resolved.ServiceTierMultipliers
+	return pricing
 }
 
 // intervalToModelPricing 将区间定价转换为 ModelPricing

@@ -231,6 +231,33 @@ func TestIsOpenAITransientProcessingError(t *testing.T) {
 	))
 }
 
+func TestIsOpenAICodexChatGPTModelUnsupportedError(t *testing.T) {
+	body := []byte(`{"detail":"The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account."}`)
+	require.True(t, isOpenAICodexChatGPTModelUnsupportedError(
+		http.StatusBadRequest,
+		"",
+		body,
+	))
+
+	require.True(t, isOpenAICodexChatGPTModelUnsupportedError(
+		http.StatusBadRequest,
+		"The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account.",
+		nil,
+	))
+
+	require.False(t, isOpenAICodexChatGPTModelUnsupportedError(
+		http.StatusBadRequest,
+		"Model gpt-5.5 was not found.",
+		[]byte(`{"detail":"Model gpt-5.5 was not found."}`),
+	))
+
+	require.False(t, isOpenAICodexChatGPTModelUnsupportedError(
+		http.StatusForbidden,
+		"The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account.",
+		body,
+	))
+}
+
 func TestOpenAIGatewayService_Forward_LogsInstructionsRequiredDetails(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	logSink, restore := captureStructuredLog(t)
@@ -330,5 +357,55 @@ func TestOpenAIGatewayService_Forward_TransientProcessingErrorTriggersFailover(t
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, http.StatusBadRequest, failoverErr.StatusCode)
 	require.Contains(t, string(failoverErr.ResponseBody), "An error occurred while processing your request")
+	require.False(t, c.Writer.Written(), "service 层应返回 failover 错误给上层换号，而不是直接向客户端写响应")
+}
+
+func TestOpenAIGatewayService_Forward_CodexChatGPTModelUnsupportedTriggersFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
+	c.Request.Header.Set("User-Agent", "codex_cli_rs/0.1.0")
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstreamBody := `{"detail":"The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account."}`
+	upstream := &httpUpstreamRecorder{
+		resp: &http.Response{
+			StatusCode: http.StatusBadRequest,
+			Header: http.Header{
+				"Content-Type": []string{"application/json"},
+				"x-request-id": []string{"rid-codex-chatgpt-model-unsupported"},
+			},
+			Body: io.NopCloser(strings.NewReader(upstreamBody)),
+		},
+	}
+	svc := &OpenAIGatewayService{
+		cfg: &config.Config{
+			Gateway: config.GatewayConfig{ForceCodexCLI: false},
+		},
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID:             107,
+		Name:           "chatgpt oauth",
+		Platform:       PlatformOpenAI,
+		Type:           AccountTypeAPIKey,
+		Concurrency:    1,
+		Credentials:    map[string]any{"api_key": "sk-test"},
+		Status:         StatusActive,
+		Schedulable:    true,
+		RateMultiplier: f64p(1),
+	}
+	body := []byte(`{"model":"gpt-5.5","stream":false,"input":[{"type":"text","text":"hello"}]}`)
+
+	_, err := svc.Forward(context.Background(), c, account, body)
+	require.Error(t, err)
+
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusBadRequest, failoverErr.StatusCode)
+	require.Contains(t, string(failoverErr.ResponseBody), "not supported when using Codex with a ChatGPT account")
+	require.False(t, failoverErr.RetryableOnSameAccount, "该错误应直接切换账号，而不是同账号重试")
 	require.False(t, c.Writer.Written(), "service 层应返回 failover 错误给上层换号，而不是直接向客户端写响应")
 }

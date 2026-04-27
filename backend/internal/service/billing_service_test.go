@@ -453,9 +453,59 @@ func TestCalculateCost_LargeTokenCount(t *testing.T) {
 func TestServiceTierCostMultiplier(t *testing.T) {
 	require.InDelta(t, 2.0, serviceTierCostMultiplier("priority"), 1e-12)
 	require.InDelta(t, 2.0, serviceTierCostMultiplier(" Priority "), 1e-12)
+	require.InDelta(t, 2.0, serviceTierCostMultiplier("fast"), 1e-12)
 	require.InDelta(t, 0.5, serviceTierCostMultiplier("flex"), 1e-12)
 	require.InDelta(t, 1.0, serviceTierCostMultiplier(""), 1e-12)
 	require.InDelta(t, 1.0, serviceTierCostMultiplier("default"), 1e-12)
+}
+
+func TestComputeTokenBreakdown_ServiceTierMultiplierOverridesPriorityPrices(t *testing.T) {
+	svc := newTestBillingService()
+	pricing := &ModelPricing{
+		InputPricePerToken:             1,
+		InputPricePerTokenPriority:     100,
+		OutputPricePerToken:            2,
+		OutputPricePerTokenPriority:    200,
+		CacheCreationPricePerToken:     3,
+		CacheReadPricePerToken:         4,
+		CacheReadPricePerTokenPriority: 400,
+		ServiceTierMultipliers:         map[string]float64{"priority": 1.25},
+	}
+	tokens := UsageTokens{
+		InputTokens:         10,
+		OutputTokens:        10,
+		CacheCreationTokens: 10,
+		CacheReadTokens:     10,
+	}
+
+	cost := svc.computeTokenBreakdown(pricing, tokens, 1.0, "priority", false)
+
+	require.InDelta(t, 12.5, cost.InputCost, 1e-12)
+	require.InDelta(t, 25.0, cost.OutputCost, 1e-12)
+	require.InDelta(t, 37.5, cost.CacheCreationCost, 1e-12)
+	require.InDelta(t, 50.0, cost.CacheReadCost, 1e-12)
+	require.InDelta(t, 125.0, cost.TotalCost, 1e-12)
+}
+
+func TestComputeTokenBreakdown_ServiceTierMultiplierAllowsZero(t *testing.T) {
+	svc := newTestBillingService()
+	pricing := &ModelPricing{
+		InputPricePerToken:         1,
+		OutputPricePerToken:        2,
+		CacheCreationPricePerToken: 3,
+		CacheReadPricePerToken:     4,
+		ServiceTierMultipliers:     map[string]float64{"flex": 0},
+	}
+
+	cost := svc.computeTokenBreakdown(pricing, UsageTokens{
+		InputTokens:         10,
+		OutputTokens:        10,
+		CacheCreationTokens: 10,
+		CacheReadTokens:     10,
+	}, 1.0, "flex", false)
+
+	require.Zero(t, cost.TotalCost)
+	require.Zero(t, cost.ActualCost)
 }
 
 func TestCalculateCostWithServiceTier_OpenAIPriorityUsesPriorityPricing(t *testing.T) {

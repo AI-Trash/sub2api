@@ -602,6 +602,9 @@ func validatePricingBillingMode(pricing []ChannelModelPricing) error {
 		if err := checkPricesNotNegative(p); err != nil {
 			return err
 		}
+		if err := checkServiceTierMultipliers(p); err != nil {
+			return err
+		}
 		if err := checkIntervalsHavePrices(p); err != nil {
 			return err
 		}
@@ -636,6 +639,18 @@ func checkPricesNotNegative(p ChannelModelPricing) error {
 	for _, c := range checks {
 		if c.val != nil && *c.val < 0 {
 			return infraerrors.BadRequest("NEGATIVE_PRICE", fmt.Sprintf("%s must be >= 0", c.field))
+		}
+	}
+	return nil
+}
+
+func checkServiceTierMultipliers(p ChannelModelPricing) error {
+	for tier, multiplier := range NormalizeServiceTierMultipliers(p.ServiceTierMultipliers) {
+		if multiplier < 0 {
+			return infraerrors.BadRequest(
+				"NEGATIVE_SERVICE_TIER_MULTIPLIER",
+				fmt.Sprintf("service_tier_multipliers.%s must be >= 0", tier),
+			)
 		}
 	}
 	return nil
