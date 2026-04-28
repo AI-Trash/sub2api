@@ -258,6 +258,104 @@ func TestIsOpenAICodexChatGPTModelUnsupportedError(t *testing.T) {
 	))
 }
 
+func TestExtractOpenAICodexChatGPTUnsupportedModel(t *testing.T) {
+	body := []byte(`{"detail":"The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account."}`)
+	require.Equal(t, "gpt-5.5", extractOpenAICodexChatGPTUnsupportedModel("", body))
+	require.Equal(t, "gpt-5.4", extractOpenAICodexChatGPTUnsupportedModel(
+		"The 'gpt-5.4' model is not supported when using Codex with a ChatGPT account.",
+		nil,
+	))
+	require.Empty(t, extractOpenAICodexChatGPTUnsupportedModel("Model gpt-5.5 was not found.", nil))
+}
+
+type codexUnsupportedBlacklistRepo struct {
+	AccountRepository
+	account                  *Account
+	updatedCredentials       map[string]any
+	updateCredentialsCallCnt int
+}
+
+func (r *codexUnsupportedBlacklistRepo) GetByID(ctx context.Context, id int64) (*Account, error) {
+	if r.account == nil || r.account.ID != id {
+		return nil, ErrAccountNotFound
+	}
+	copied := *r.account
+	copied.Credentials = cloneCredentials(r.account.Credentials)
+	return &copied, nil
+}
+
+func (r *codexUnsupportedBlacklistRepo) UpdateCredentials(ctx context.Context, id int64, credentials map[string]any) error {
+	if r.account == nil || r.account.ID != id {
+		return ErrAccountNotFound
+	}
+	r.updateCredentialsCallCnt++
+	r.updatedCredentials = cloneCredentials(credentials)
+	r.account.Credentials = cloneCredentials(credentials)
+	return nil
+}
+
+func TestOpenAIGatewayService_HandleFailoverSideEffects_BlacklistsUnsupportedCodexModel(t *testing.T) {
+	body := []byte(`{"detail":"The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account."}`)
+	repo := &codexUnsupportedBlacklistRepo{
+		account: &Account{
+			ID:          42,
+			Name:        "chatgpt-plus",
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Schedulable: true,
+			Credentials: map[string]any{
+				"model_blacklist": []any{"gpt-5"},
+			},
+		},
+	}
+	svc := &OpenAIGatewayService{accountRepo: repo}
+	resp := &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header:     http.Header{},
+		Body:       io.NopCloser(bytes.NewReader(body)),
+	}
+
+	svc.handleFailoverSideEffects(context.Background(), resp, repo.account, "fallback-model", "", body)
+
+	require.Equal(t, 1, repo.updateCredentialsCallCnt)
+	require.Equal(t, []string{"gpt-5", "gpt-5.5"}, stringSliceFromRaw(repo.updatedCredentials["model_blacklist"]))
+	require.True(t, repo.account.IsModelBlacklisted("gpt-5.5"))
+}
+
+func TestOpenAIAccountEligibilityRejectsBlacklistedMappedModel(t *testing.T) {
+	t.Run("account mapping target", func(t *testing.T) {
+		account := &Account{
+			ID:          42,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Schedulable: true,
+			Credentials: map[string]any{
+				"model_mapping":   map[string]any{"codex-latest": "gpt-5.5"},
+				"model_blacklist": []any{"gpt-5.5"},
+			},
+		}
+
+		require.False(t, isOpenAIAccountEligibleForRequest(account, "codex-latest", false))
+	})
+
+	t.Run("oauth-normalized upstream model", func(t *testing.T) {
+		account := &Account{
+			ID:          43,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Schedulable: true,
+			Credentials: map[string]any{
+				"model_blacklist": []any{"gpt-5.3-codex"},
+			},
+		}
+
+		require.False(t, isOpenAIAccountEligibleForRequest(account, "codex-latest", false))
+	})
+}
+
 func TestOpenAIGatewayService_Forward_LogsInstructionsRequiredDetails(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	logSink, restore := captureStructuredLog(t)

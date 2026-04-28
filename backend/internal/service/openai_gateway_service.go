@@ -1134,6 +1134,47 @@ func isOpenAICodexChatGPTModelUnsupportedError(upstreamStatusCode int, upstreamM
 	return match(string(upstreamBody))
 }
 
+func extractOpenAICodexChatGPTUnsupportedModel(upstreamMsg string, upstreamBody []byte) string {
+	candidates := []string{upstreamMsg}
+	if len(upstreamBody) > 0 {
+		candidates = append(candidates,
+			gjson.GetBytes(upstreamBody, "detail").String(),
+			gjson.GetBytes(upstreamBody, "error.message").String(),
+			string(upstreamBody),
+		)
+	}
+
+	for _, candidate := range candidates {
+		if model := extractOpenAICodexChatGPTUnsupportedModelFromText(candidate); model != "" {
+			return model
+		}
+	}
+	return ""
+}
+
+func extractOpenAICodexChatGPTUnsupportedModelFromText(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	lower := strings.ToLower(text)
+	marker := " model is not supported when using codex with a chatgpt account"
+	markerIndex := strings.Index(lower, marker)
+	if markerIndex <= 0 {
+		return ""
+	}
+	prefix := text[:markerIndex]
+	endQuote := strings.LastIndex(prefix, "'")
+	if endQuote <= 0 {
+		return ""
+	}
+	startQuote := strings.LastIndex(prefix[:endQuote], "'")
+	if startQuote < 0 || startQuote+1 >= endQuote {
+		return ""
+	}
+	return strings.TrimSpace(prefix[startQuote+1 : endQuote])
+}
+
 // ExtractSessionID extracts the raw session ID from headers or body without hashing.
 // Used by ForwardAsAnthropic to pass as prompt_cache_key for upstream cache.
 func (s *OpenAIGatewayService) ExtractSessionID(c *gin.Context, body []byte) string {
@@ -1300,6 +1341,12 @@ func isOpenAIAccountEligibleForRequest(account *Account, requestedModel string, 
 	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
 		return false
 	}
+	if requestedModel != "" {
+		upstreamModel := resolveOpenAIAccountUpstreamModelForRequest(account, requestedModel, requireCompact)
+		if upstreamModel != "" && upstreamModel != requestedModel && account.IsModelBlacklisted(upstreamModel) {
+			return false
+		}
+	}
 	if requireCompact && openAICompactSupportTier(account) == 0 {
 		return false
 	}
@@ -1344,7 +1391,7 @@ func resolveOpenAIAccountUpstreamModelForRequest(account *Account, requestedMode
 	if requireCompact {
 		return resolveOpenAICompactForwardModel(account, upstreamModel)
 	}
-	return upstreamModel
+	return normalizeOpenAIModelForUpstream(account, upstreamModel)
 }
 
 func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, stickyAccountID int64) (*Account, error) {
@@ -1990,9 +2037,67 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode i
 		isOpenAICodexChatGPTModelUnsupportedError(statusCode, upstreamMsg, upstreamBody)
 }
 
-func (s *OpenAIGatewayService) handleFailoverSideEffects(ctx context.Context, resp *http.Response, account *Account) {
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
-	s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, body)
+func (s *OpenAIGatewayService) handleFailoverSideEffects(ctx context.Context, resp *http.Response, account *Account, requestedModel string, upstreamMsg string, upstreamBody []byte) {
+	if resp == nil {
+		return
+	}
+	body := upstreamBody
+	if len(body) == 0 && resp.Body != nil {
+		body, _ = io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	}
+	if isOpenAICodexChatGPTModelUnsupportedError(resp.StatusCode, upstreamMsg, body) {
+		model := extractOpenAICodexChatGPTUnsupportedModel(upstreamMsg, body)
+		if model == "" {
+			model = strings.TrimSpace(requestedModel)
+		}
+		if err := s.addOpenAIAccountModelBlacklist(ctx, account, model); err != nil {
+			accountID := int64(0)
+			if account != nil {
+				accountID = account.ID
+			}
+			slog.Warn("failed to append OpenAI account model blacklist after Codex unsupported-model error",
+				"account_id", accountID,
+				"model", model,
+				"err", err)
+		}
+		return
+	}
+	if s.rateLimitService != nil {
+		s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, body)
+	}
+}
+
+func (s *OpenAIGatewayService) addOpenAIAccountModelBlacklist(ctx context.Context, account *Account, model string) error {
+	if s == nil || s.accountRepo == nil || account == nil || account.ID <= 0 {
+		return nil
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return nil
+	}
+
+	latest, err := s.accountRepo.GetByID(ctx, account.ID)
+	if err != nil {
+		return err
+	}
+	if latest == nil {
+		return nil
+	}
+	if latest.IsModelBlacklisted(model) {
+		return nil
+	}
+
+	credentials := cloneCredentials(latest.Credentials)
+	blacklist := latest.GetModelBlacklist()
+	for _, existing := range blacklist {
+		if strings.TrimSpace(existing) == model {
+			return nil
+		}
+	}
+	blacklist = append(blacklist, model)
+	credentials["model_blacklist"] = blacklist
+
+	return persistAccountCredentials(ctx, s.accountRepo, latest, credentials)
 }
 
 // Forward forwards request to OpenAI API
@@ -2662,7 +2767,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 					Detail:             upstreamDetail,
 				})
 
-				s.handleFailoverSideEffects(ctx, resp, account)
+				s.handleFailoverSideEffects(ctx, resp, account, upstreamModel, upstreamMsg, respBody)
 				return nil, &UpstreamFailoverError{
 					StatusCode:             resp.StatusCode,
 					ResponseBody:           respBody,
