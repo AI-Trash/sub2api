@@ -432,3 +432,21 @@ export function buildModelMappingObject(
 
   return Object.keys(mapping).length > 0 ? mapping : null
 }
+
+export function buildModelBlacklistArray(blockedModels: string[]): string[] | null {
+  const seen = new Set<string>()
+  const models: string[] = []
+
+  for (const rawModel of blockedModels) {
+    const model = rawModel.trim()
+    if (!model || seen.has(model)) continue
+    if (!isValidWildcardPattern(model)) {
+      console.warn(`[buildModelBlacklistArray] 无效的通配符格式，跳过: ${model}`)
+      continue
+    }
+    seen.add(model)
+    models.push(model)
+  }
+
+  return models.length > 0 ? models : null
+}

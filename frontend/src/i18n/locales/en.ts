@@ -2628,6 +2628,7 @@ export default {
         usageWindows: 'Usage Windows',
         proxy: 'Proxy',
         lastUsed: 'Last Used',
+        createdAt: 'Added At',
         expiresAt: 'Expires At',
         actions: 'Actions'
       },
@@ -2872,7 +2873,7 @@ export default {
         testMode: 'Test mode',
         testModeDefault: 'Default request',
         testModeCompact: 'Compact probe',
-        modelRestrictionDisabledByPassthrough: 'Automatic passthrough is enabled: model whitelist/mapping will not take effect.',
+        modelRestrictionDisabledByPassthrough: 'Automatic passthrough is enabled: model whitelist/blacklist/mapping will not take effect.',
       },
       anthropic: {
         apiKeyPassthrough: 'Auto passthrough (auth only)',
@@ -2887,12 +2888,17 @@ export default {
       },
       modelRestriction: 'Model Restriction (Optional)',
       modelWhitelist: 'Model Whitelist',
+      modelBlacklist: 'Model Blacklist',
       modelMapping: 'Model Mapping',
       selectAllowedModels: 'Select allowed models. Leave empty to support all models.',
+      selectBlockedModels:
+        'Select blocked models. Matching requests will not schedule this account. Supports trailing * wildcards.',
       mapRequestModels:
         'Map request models to actual models. Left is the requested model, right is the actual model sent to API.',
       selectedModels: 'Selected {count} model(s)',
+      blockedModels: 'Blocked {count} model(s)',
       supportsAllModels: '(supports all models)',
+      blocksNoModels: '(blocks no models)',
       requestModel: 'Request model',
       actualModel: 'Actual model',
       addMapping: 'Add Mapping',

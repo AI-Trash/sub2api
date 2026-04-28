@@ -1104,6 +1104,29 @@ func TestGatewayService_isModelSupportedByAccount(t *testing.T) {
 			expected: true,
 		},
 		{
+			name: "Antigravity平台-黑名单优先拒绝默认映射模型",
+			account: &Account{
+				Platform: PlatformAntigravity,
+				Credentials: map[string]any{
+					"model_blacklist": []any{"gemini-2.5-*"},
+				},
+			},
+			model:    "gemini-2.5-flash",
+			expected: false,
+		},
+		{
+			name: "Antigravity平台-黑名单可拒绝映射后的上游模型",
+			account: &Account{
+				Platform: PlatformAntigravity,
+				Credentials: map[string]any{
+					"model_mapping":   map[string]any{"legacy-sonnet": "claude-sonnet-4-5"},
+					"model_blacklist": []any{"claude-sonnet-4-5"},
+				},
+			},
+			model:    "legacy-sonnet",
+			expected: false,
+		},
+		{
 			name:     "Antigravity平台-不支持gpt模型",
 			account:  &Account{Platform: PlatformAntigravity},
 			model:    "gpt-4",
@@ -1114,6 +1137,28 @@ func TestGatewayService_isModelSupportedByAccount(t *testing.T) {
 			account:  &Account{Platform: PlatformAnthropic},
 			model:    "claude-3-5-sonnet-20241022",
 			expected: true,
+		},
+		{
+			name: "Anthropic平台-黑名单精确匹配拒绝模型",
+			account: &Account{
+				Platform: PlatformAnthropic,
+				Credentials: map[string]any{
+					"model_blacklist": []any{"claude-3-5-sonnet-20241022"},
+				},
+			},
+			model:    "claude-3-5-sonnet-20241022",
+			expected: false,
+		},
+		{
+			name: "Anthropic平台-黑名单通配符拒绝模型",
+			account: &Account{
+				Platform: PlatformAnthropic,
+				Credentials: map[string]any{
+					"model_blacklist": []any{"claude-opus-*"},
+				},
+			},
+			model:    "claude-opus-4-6",
+			expected: false,
 		},
 		{
 			name: "Anthropic平台-有映射配置-只支持配置的模型",
@@ -1134,10 +1179,34 @@ func TestGatewayService_isModelSupportedByAccount(t *testing.T) {
 			expected: true,
 		},
 		{
+			name: "Anthropic平台-黑名单优先于白名单映射",
+			account: &Account{
+				Platform: PlatformAnthropic,
+				Credentials: map[string]any{
+					"model_mapping":   map[string]any{"claude-3-5-sonnet-20241022": "x"},
+					"model_blacklist": []any{"claude-3-5-sonnet-20241022"},
+				},
+			},
+			model:    "claude-3-5-sonnet-20241022",
+			expected: false,
+		},
+		{
 			name:     "Gemini平台-无映射配置-支持所有模型",
 			account:  &Account{Platform: PlatformGemini, Type: AccountTypeAPIKey},
 			model:    "gemini-2.5-flash",
 			expected: true,
+		},
+		{
+			name: "Gemini平台-黑名单匹配规范化模型名",
+			account: &Account{
+				Platform: PlatformGemini,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"model_blacklist": []any{"gemini-3.1-pro-preview"},
+				},
+			},
+			model:    "gemini-3.1-pro-preview-customtools",
+			expected: false,
 		},
 		{
 			name: "Gemini平台-有映射配置-只支持配置的模型",
