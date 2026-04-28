@@ -311,7 +311,7 @@ func TestStartOpenAIImagesPreResponseKeepaliveWritesSSEComment(t *testing.T) {
 
 	require.Contains(t, rec.Body.String(), openAIImagesSSEKeepaliveFrame)
 	require.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
-	require.Equal(t, "no-cache", rec.Header().Get("Cache-Control"))
+	require.Equal(t, openAIImagesKeepaliveCacheCtl, rec.Header().Get("Cache-Control"))
 	require.Equal(t, "no", rec.Header().Get("X-Accel-Buffering"))
 }
 
@@ -461,7 +461,7 @@ func TestStartOpenAIImagesJSONPreResponseKeepaliveWritesWhitespace(t *testing.T)
 
 	require.Contains(t, rec.Body.String(), openAIImagesJSONKeepaliveFrame)
 	require.Equal(t, "application/json; charset=utf-8", rec.Header().Get("Content-Type"))
-	require.Equal(t, "no-cache", rec.Header().Get("Cache-Control"))
+	require.Equal(t, openAIImagesKeepaliveCacheCtl, rec.Header().Get("Cache-Control"))
 	require.Equal(t, "no", rec.Header().Get("X-Accel-Buffering"))
 }
 

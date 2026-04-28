@@ -44,6 +44,7 @@ const (
 	openAIImagesResponsesMainModel = "gpt-5.4-mini"
 	openAIImagesSSEKeepaliveFrame  = ":\n\n"
 	openAIImagesJSONKeepaliveFrame = "\n"
+	openAIImagesKeepaliveCacheCtl  = "no-cache, no-transform"
 
 	openAIImagesJSONKeepaliveSettingsContextKey = "openai_images_json_keepalive_settings"
 )
@@ -823,6 +824,10 @@ func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(resp *http
 			contentType = upstreamType
 		}
 	}
+	if jsonKeepalive {
+		c.Header("Cache-Control", openAIImagesKeepaliveCacheCtl)
+		c.Header("X-Accel-Buffering", "no")
+	}
 	c.Data(resp.StatusCode, contentType, body)
 
 	usage, _ := extractOpenAIUsageFromJSONBytes(body)
@@ -841,7 +846,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 	}
 	c.Status(resp.StatusCode)
 	c.Header("Content-Type", contentType)
-	c.Header("Cache-Control", "no-cache")
+	c.Header("Cache-Control", openAIImagesKeepaliveCacheCtl)
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
 
@@ -1224,7 +1229,7 @@ func writeOpenAIImagesSSEKeepalive(c *gin.Context, flusher http.Flusher) error {
 	}
 	if !c.Writer.Written() {
 		c.Header("Content-Type", "text/event-stream")
-		c.Header("Cache-Control", "no-cache")
+		c.Header("Cache-Control", openAIImagesKeepaliveCacheCtl)
 		c.Header("Connection", "keep-alive")
 		c.Header("X-Accel-Buffering", "no")
 	}
@@ -1241,7 +1246,7 @@ func writeOpenAIImagesJSONKeepalive(c *gin.Context, flusher http.Flusher) error 
 	}
 	if !c.Writer.Written() {
 		c.Header("Content-Type", "application/json; charset=utf-8")
-		c.Header("Cache-Control", "no-cache")
+		c.Header("Cache-Control", openAIImagesKeepaliveCacheCtl)
 		c.Header("Connection", "keep-alive")
 		c.Header("X-Accel-Buffering", "no")
 	}
