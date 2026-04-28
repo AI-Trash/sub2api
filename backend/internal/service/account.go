@@ -443,6 +443,45 @@ func stringMappingFromRaw(raw any) map[string]string {
 	}
 }
 
+func stringSliceFromRaw(raw any) []string {
+	switch values := raw.(type) {
+	case []any:
+		if len(values) == 0 {
+			return nil
+		}
+		result := make([]string, 0, len(values))
+		for _, value := range values {
+			if str, ok := value.(string); ok {
+				str = strings.TrimSpace(str)
+				if str != "" {
+					result = append(result, str)
+				}
+			}
+		}
+		if len(result) == 0 {
+			return nil
+		}
+		return result
+	case []string:
+		if len(values) == 0 {
+			return nil
+		}
+		result := make([]string, 0, len(values))
+		for _, value := range values {
+			value = strings.TrimSpace(value)
+			if value != "" {
+				result = append(result, value)
+			}
+		}
+		if len(result) == 0 {
+			return nil
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
 func (a *Account) GetModelMapping() map[string]string {
 	credentialsPtr := mapPtr(a.Credentials)
 	rawMapping, _ := a.Credentials["model_mapping"].(map[string]any)
@@ -474,6 +513,13 @@ func (a *Account) GetModelMapping() map[string]string {
 	a.modelMappingCacheRawLen = rawLen
 	a.modelMappingCacheRawSig = rawSig
 	return mapping
+}
+
+func (a *Account) GetModelBlacklist() []string {
+	if a == nil || a.Credentials == nil {
+		return nil
+	}
+	return stringSliceFromRaw(a.Credentials["model_blacklist"])
 }
 
 func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]string {
@@ -598,6 +644,18 @@ func mappingSupportsRequestedModel(mapping map[string]string, requestedModel str
 	return false
 }
 
+func modelBlacklistMatches(patterns []string, requestedModel string) bool {
+	if requestedModel == "" {
+		return false
+	}
+	for _, pattern := range patterns {
+		if matchWildcard(pattern, requestedModel) {
+			return true
+		}
+	}
+	return false
+}
+
 func resolveRequestedModelInMapping(mapping map[string]string, requestedModel string) (mappedModel string, matched bool) {
 	if requestedModel == "" {
 		return "", false
@@ -608,9 +666,26 @@ func resolveRequestedModelInMapping(mapping map[string]string, requestedModel st
 	return matchWildcardMappingResult(mapping, requestedModel)
 }
 
+// IsModelBlacklisted checks whether requestedModel is explicitly denied by model_blacklist.
+func (a *Account) IsModelBlacklisted(requestedModel string) bool {
+	blacklist := a.GetModelBlacklist()
+	if len(blacklist) == 0 {
+		return false
+	}
+	requestedModel = strings.TrimSpace(requestedModel)
+	if modelBlacklistMatches(blacklist, requestedModel) {
+		return true
+	}
+	normalized := normalizeRequestedModelForLookup(a.Platform, requestedModel)
+	return normalized != requestedModel && modelBlacklistMatches(blacklist, normalized)
+}
+
 // IsModelSupported 检查模型是否在 model_mapping 中（支持通配符）
 // 如果未配置 mapping，返回 true（允许所有模型）
 func (a *Account) IsModelSupported(requestedModel string) bool {
+	if a.IsModelBlacklisted(requestedModel) {
+		return false
+	}
 	mapping := a.GetModelMapping()
 	if len(mapping) == 0 {
 		return true // 无映射 = 允许所有

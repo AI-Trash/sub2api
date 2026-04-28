@@ -3569,6 +3569,9 @@ func (s *GatewayService) isModelSupportedByAccountWithContext(ctx context.Contex
 		// 应用 thinking 后缀后检查最终模型是否在账号映射中
 		if enabled, ok := ThinkingEnabledFromContext(ctx); ok {
 			finalModel := applyThinkingModelSuffix(mapped, enabled)
+			if account.IsModelBlacklisted(finalModel) {
+				return false
+			}
 			if finalModel == mapped {
 				return true // thinking 后缀未改变模型名，映射已通过
 			}

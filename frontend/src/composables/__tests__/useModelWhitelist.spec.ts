@@ -4,7 +4,7 @@ vi.mock('@/api/admin/accounts', () => ({
   getAntigravityDefaultModelMapping: vi.fn()
 }))
 
-import { buildModelMappingObject, getModelsByPlatform } from '../useModelWhitelist'
+import { buildModelBlacklistArray, buildModelMappingObject, getModelsByPlatform } from '../useModelWhitelist'
 
 describe('useModelWhitelist', () => {
   it('openai 模型列表包含 GPT-5.4 官方快照', () => {
@@ -71,5 +71,11 @@ describe('useModelWhitelist', () => {
     expect(mapping).toEqual({
       'gpt-5.4-mini': 'gpt-5.4-mini'
     })
+  })
+
+  it('blacklist keeps exact and valid wildcard entries', () => {
+    const blacklist = buildModelBlacklistArray([' claude-opus-* ', 'gpt-5.4', 'bad*pattern'])
+
+    expect(blacklist).toEqual(['claude-opus-*', 'gpt-5.4'])
   })
 })
