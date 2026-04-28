@@ -5693,6 +5693,25 @@ export default {
         saved: '流超时设置保存成功',
         saveFailed: '保存流超时设置失败'
       },
+      openAIImagesKeepalive: {
+        title: 'OpenAI 图片 JSON Keepalive',
+        description: '为 Cherry Studio 等非流式图片客户端发送 JSON 空白保活，降低反代空闲超时导致的断连。',
+        enabled: '启用图片 JSON 空白保活',
+        enabledHint: '仅对匹配 Cherry Studio 标识的非流式 OpenAI 图片请求生效。',
+        intervalSeconds: '保活间隔（秒）',
+        intervalSecondsHint: '发送换行空白的间隔，范围 5-30 秒。',
+        userAgentKeywords: 'User-Agent 关键词',
+        userAgentKeywordsHint: '当请求 User-Agent 包含任一关键词时启用。',
+        userAgentKeywordPlaceholder: '例如：CherryStudio',
+        addUserAgentKeyword: '添加 UA 关键词',
+        headerMatches: '请求头匹配规则',
+        headerMatchesHint: '格式为 Header-Name:关键词，匹配请求头值中的关键词。',
+        headerMatchPlaceholder: '例如：X-Title:Cherry Studio',
+        addHeaderMatch: '添加请求头规则',
+        note: '此功能会在最终 JSON 前发送换行空白。客户端仍可按 JSON 解析，但若上游在空白已发送后失败，HTTP 状态码可能已经提交。',
+        saved: '图片 JSON keepalive 设置保存成功',
+        saveFailed: '保存图片 JSON keepalive 设置失败'
+      },
       rectifier: {
         title: '请求整流器',
         description: '当上游返回特定错误时，自动修正请求参数并重试，提高请求成功率',

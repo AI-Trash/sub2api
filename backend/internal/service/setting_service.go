@@ -3274,6 +3274,116 @@ func (s *SettingService) SetBetaPolicySettings(ctx context.Context, settings *Be
 	return s.settingRepo.Set(ctx, SettingKeyBetaPolicySettings, string(data))
 }
 
+// GetOpenAIImagesJSONKeepaliveSettings 获取 OpenAI 图片非流式 JSON 空白 keepalive 配置
+func (s *SettingService) GetOpenAIImagesJSONKeepaliveSettings(ctx context.Context) (*OpenAIImagesJSONKeepaliveSettings, error) {
+	if s == nil || s.settingRepo == nil {
+		return DefaultOpenAIImagesJSONKeepaliveSettings(), nil
+	}
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyOpenAIImagesJSONKeepaliveSettings)
+	if err != nil {
+		if errors.Is(err, ErrSettingNotFound) {
+			return DefaultOpenAIImagesJSONKeepaliveSettings(), nil
+		}
+		return nil, fmt.Errorf("get openai images json keepalive settings: %w", err)
+	}
+	if value == "" {
+		return DefaultOpenAIImagesJSONKeepaliveSettings(), nil
+	}
+
+	var settings OpenAIImagesJSONKeepaliveSettings
+	if err := json.Unmarshal([]byte(value), &settings); err != nil {
+		return DefaultOpenAIImagesJSONKeepaliveSettings(), nil
+	}
+	return normalizeOpenAIImagesJSONKeepaliveSettings(&settings, false)
+}
+
+// SetOpenAIImagesJSONKeepaliveSettings 设置 OpenAI 图片非流式 JSON 空白 keepalive 配置
+func (s *SettingService) SetOpenAIImagesJSONKeepaliveSettings(ctx context.Context, settings *OpenAIImagesJSONKeepaliveSettings) error {
+	if settings == nil {
+		return fmt.Errorf("settings cannot be nil")
+	}
+	normalized, err := normalizeOpenAIImagesJSONKeepaliveSettings(settings, true)
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(normalized)
+	if err != nil {
+		return fmt.Errorf("marshal openai images json keepalive settings: %w", err)
+	}
+	return s.settingRepo.Set(ctx, SettingKeyOpenAIImagesJSONKeepaliveSettings, string(data))
+}
+
+// IsOpenAIImagesJSONKeepaliveEnabled 查询 OpenAI 图片非流式 JSON 空白 keepalive 是否启用。
+func (s *SettingService) IsOpenAIImagesJSONKeepaliveEnabled(ctx context.Context) bool {
+	if s == nil {
+		return DefaultOpenAIImagesJSONKeepaliveSettings().Enabled
+	}
+	settings, err := s.GetOpenAIImagesJSONKeepaliveSettings(ctx)
+	if err != nil {
+		return DefaultOpenAIImagesJSONKeepaliveSettings().Enabled
+	}
+	return settings.Enabled
+}
+
+func normalizeOpenAIImagesJSONKeepaliveSettings(settings *OpenAIImagesJSONKeepaliveSettings, strict bool) (*OpenAIImagesJSONKeepaliveSettings, error) {
+	defaults := DefaultOpenAIImagesJSONKeepaliveSettings()
+	if settings == nil {
+		return defaults, nil
+	}
+
+	normalized := &OpenAIImagesJSONKeepaliveSettings{
+		Enabled:                  settings.Enabled,
+		KeepaliveIntervalSeconds: settings.KeepaliveIntervalSeconds,
+		UserAgentKeywords:        sanitizeOpenAIImagesJSONKeepaliveStrings(settings.UserAgentKeywords, defaults.UserAgentKeywords),
+		HeaderMatches:            sanitizeOpenAIImagesJSONKeepaliveStrings(settings.HeaderMatches, defaults.HeaderMatches),
+	}
+	if settings.UserAgentKeywords == nil {
+		normalized.UserAgentKeywords = append([]string(nil), defaults.UserAgentKeywords...)
+	}
+	if settings.HeaderMatches == nil {
+		normalized.HeaderMatches = append([]string(nil), defaults.HeaderMatches...)
+	}
+	if normalized.KeepaliveIntervalSeconds == 0 {
+		normalized.KeepaliveIntervalSeconds = defaults.KeepaliveIntervalSeconds
+	}
+	if normalized.KeepaliveIntervalSeconds < 5 || normalized.KeepaliveIntervalSeconds > 30 {
+		if normalized.Enabled {
+			return nil, fmt.Errorf("keepalive_interval_seconds must be between 5-30")
+		}
+		normalized.KeepaliveIntervalSeconds = defaults.KeepaliveIntervalSeconds
+	}
+	if strict {
+		for i, rule := range normalized.HeaderMatches {
+			name, keyword, ok := strings.Cut(rule, ":")
+			if !ok || strings.TrimSpace(name) == "" || strings.TrimSpace(keyword) == "" {
+				return nil, fmt.Errorf("header_matches[%d] must use Header-Name:keyword format", i)
+			}
+		}
+	}
+	return normalized, nil
+}
+
+func sanitizeOpenAIImagesJSONKeepaliveStrings(values []string, fallback []string) []string {
+	if values == nil {
+		return append([]string(nil), fallback...)
+	}
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		key := strings.ToLower(trimmed)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out
+}
+
 // SetStreamTimeoutSettings 设置流超时处理配置
 func (s *SettingService) SetStreamTimeoutSettings(ctx context.Context, settings *StreamTimeoutSettings) error {
 	if settings == nil {

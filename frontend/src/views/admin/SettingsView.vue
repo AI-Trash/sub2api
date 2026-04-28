@@ -471,6 +471,279 @@
             </div>
           </div>
 
+          <!-- OpenAI Images JSON Keepalive Settings -->
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.openAIImagesKeepalive.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.openAIImagesKeepalive.description") }}
+              </p>
+            </div>
+            <div class="space-y-5 p-6">
+              <div
+                v-if="openAIImagesKeepaliveLoading"
+                class="flex items-center gap-2 text-gray-500"
+              >
+                <div
+                  class="h-4 w-4 animate-spin rounded-full border-b-2 border-primary-600"
+                ></div>
+                {{ t("common.loading") }}
+              </div>
+
+              <template v-else>
+                <div class="flex items-center justify-between gap-4">
+                  <div>
+                    <label class="font-medium text-gray-900 dark:text-white">
+                      {{ t("admin.settings.openAIImagesKeepalive.enabled") }}
+                    </label>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                      {{
+                        t("admin.settings.openAIImagesKeepalive.enabledHint")
+                      }}
+                    </p>
+                  </div>
+                  <Toggle v-model="openAIImagesKeepaliveForm.enabled" />
+                </div>
+
+                <div
+                  v-if="openAIImagesKeepaliveForm.enabled"
+                  class="space-y-4 border-t border-gray-100 pt-4 dark:border-dark-700"
+                >
+                  <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_8rem]">
+                    <div>
+                      <label
+                        class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                      >
+                        {{
+                          t(
+                            "admin.settings.openAIImagesKeepalive.intervalSeconds",
+                          )
+                        }}
+                      </label>
+                      <p class="text-xs text-gray-500 dark:text-gray-400">
+                        {{
+                          t(
+                            "admin.settings.openAIImagesKeepalive.intervalSecondsHint",
+                          )
+                        }}
+                      </p>
+                    </div>
+                    <input
+                      v-model.number="
+                        openAIImagesKeepaliveForm.keepalive_interval_seconds
+                      "
+                      type="number"
+                      min="5"
+                      max="30"
+                      class="input w-full"
+                    />
+                  </div>
+
+                  <div class="space-y-3">
+                    <div>
+                      <label
+                        class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                      >
+                        {{
+                          t(
+                            "admin.settings.openAIImagesKeepalive.userAgentKeywords",
+                          )
+                        }}
+                      </label>
+                      <p class="text-xs text-gray-500 dark:text-gray-400">
+                        {{
+                          t(
+                            "admin.settings.openAIImagesKeepalive.userAgentKeywordsHint",
+                          )
+                        }}
+                      </p>
+                    </div>
+                    <div
+                      v-for="(
+                        _, index
+                      ) in openAIImagesKeepaliveForm.user_agent_keywords"
+                      :key="`openai-images-ua-${index}`"
+                      class="flex items-center gap-2"
+                    >
+                      <input
+                        v-model="
+                          openAIImagesKeepaliveForm.user_agent_keywords[index]
+                        "
+                        type="text"
+                        class="input input-sm flex-1"
+                        :placeholder="
+                          t(
+                            'admin.settings.openAIImagesKeepalive.userAgentKeywordPlaceholder',
+                          )
+                        "
+                      />
+                      <button
+                        type="button"
+                        @click="
+                          openAIImagesKeepaliveForm.user_agent_keywords.splice(
+                            index,
+                            1,
+                          )
+                        "
+                        class="btn btn-ghost btn-xs text-red-500 hover:text-red-700"
+                      >
+                        <svg
+                          class="h-4 w-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M6 18L18 6M6 6l12 12"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      @click="
+                        openAIImagesKeepaliveForm.user_agent_keywords.push('')
+                      "
+                      class="btn btn-ghost btn-xs text-primary-600 dark:text-primary-400"
+                    >
+                      +
+                      {{
+                        t(
+                          "admin.settings.openAIImagesKeepalive.addUserAgentKeyword",
+                        )
+                      }}
+                    </button>
+                  </div>
+
+                  <div class="space-y-3">
+                    <div>
+                      <label
+                        class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                      >
+                        {{
+                          t(
+                            "admin.settings.openAIImagesKeepalive.headerMatches",
+                          )
+                        }}
+                      </label>
+                      <p class="text-xs text-gray-500 dark:text-gray-400">
+                        {{
+                          t(
+                            "admin.settings.openAIImagesKeepalive.headerMatchesHint",
+                          )
+                        }}
+                      </p>
+                    </div>
+                    <div
+                      v-for="(
+                        _, index
+                      ) in openAIImagesKeepaliveForm.header_matches"
+                      :key="`openai-images-header-${index}`"
+                      class="flex items-center gap-2"
+                    >
+                      <input
+                        v-model="
+                          openAIImagesKeepaliveForm.header_matches[index]
+                        "
+                        type="text"
+                        class="input input-sm flex-1 font-mono"
+                        :placeholder="
+                          t(
+                            'admin.settings.openAIImagesKeepalive.headerMatchPlaceholder',
+                          )
+                        "
+                      />
+                      <button
+                        type="button"
+                        @click="
+                          openAIImagesKeepaliveForm.header_matches.splice(
+                            index,
+                            1,
+                          )
+                        "
+                        class="btn btn-ghost btn-xs text-red-500 hover:text-red-700"
+                      >
+                        <svg
+                          class="h-4 w-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M6 18L18 6M6 6l12 12"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      @click="openAIImagesKeepaliveForm.header_matches.push('')"
+                      class="btn btn-ghost btn-xs text-primary-600 dark:text-primary-400"
+                    >
+                      +
+                      {{
+                        t("admin.settings.openAIImagesKeepalive.addHeaderMatch")
+                      }}
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300"
+                >
+                  {{ t("admin.settings.openAIImagesKeepalive.note") }}
+                </div>
+
+                <div
+                  class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
+                >
+                  <button
+                    type="button"
+                    @click="saveOpenAIImagesKeepaliveSettings"
+                    :disabled="openAIImagesKeepaliveSaving"
+                    class="btn btn-primary btn-sm"
+                  >
+                    <svg
+                      v-if="openAIImagesKeepaliveSaving"
+                      class="mr-1 h-4 w-4 animate-spin"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        class="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        stroke-width="4"
+                      ></circle>
+                      <path
+                        class="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
+                    </svg>
+                    {{
+                      openAIImagesKeepaliveSaving
+                        ? t("common.saving")
+                        : t("common.save")
+                    }}
+                  </button>
+                </div>
+              </template>
+            </div>
+          </div>
+
           <!-- Request Rectifier Settings -->
           <div class="card">
             <div
@@ -5389,6 +5662,16 @@ const streamTimeoutForm = reactive({
   threshold_window_minutes: 10,
 });
 
+// OpenAI 图片非流式 JSON keepalive 状态
+const openAIImagesKeepaliveLoading = ref(true);
+const openAIImagesKeepaliveSaving = ref(false);
+const openAIImagesKeepaliveForm = reactive({
+  enabled: true,
+  keepalive_interval_seconds: 10,
+  user_agent_keywords: [] as string[],
+  header_matches: [] as string[],
+});
+
 // Rectifier 状态
 const rectifierLoading = ref(true);
 const rectifierSaving = ref(false);
@@ -6842,6 +7125,70 @@ async function saveStreamTimeoutSettings() {
   }
 }
 
+// OpenAI 图片非流式 JSON keepalive 方法
+function sanitizeOpenAIImagesKeepaliveList(values: string[]) {
+  return values.map((value) => value.trim()).filter(Boolean);
+}
+
+function normalizeOpenAIImagesKeepaliveForm() {
+  openAIImagesKeepaliveForm.keepalive_interval_seconds =
+    Number(openAIImagesKeepaliveForm.keepalive_interval_seconds) || 10;
+  if (!Array.isArray(openAIImagesKeepaliveForm.user_agent_keywords)) {
+    openAIImagesKeepaliveForm.user_agent_keywords = [];
+  }
+  if (!Array.isArray(openAIImagesKeepaliveForm.header_matches)) {
+    openAIImagesKeepaliveForm.header_matches = [];
+  }
+}
+
+async function loadOpenAIImagesKeepaliveSettings() {
+  openAIImagesKeepaliveLoading.value = true;
+  try {
+    const settings =
+      await adminAPI.settings.getOpenAIImagesJSONKeepaliveSettings();
+    Object.assign(openAIImagesKeepaliveForm, settings);
+    normalizeOpenAIImagesKeepaliveForm();
+  } catch (_error: unknown) {
+    // Silent fail - settings will use defaults
+  } finally {
+    openAIImagesKeepaliveLoading.value = false;
+  }
+}
+
+async function saveOpenAIImagesKeepaliveSettings() {
+  openAIImagesKeepaliveSaving.value = true;
+  try {
+    const interval = Number(
+      openAIImagesKeepaliveForm.keepalive_interval_seconds,
+    );
+    const updated =
+      await adminAPI.settings.updateOpenAIImagesJSONKeepaliveSettings({
+        enabled: openAIImagesKeepaliveForm.enabled,
+        keepalive_interval_seconds: Number.isFinite(interval)
+          ? Math.trunc(interval)
+          : 10,
+        user_agent_keywords: sanitizeOpenAIImagesKeepaliveList(
+          openAIImagesKeepaliveForm.user_agent_keywords,
+        ),
+        header_matches: sanitizeOpenAIImagesKeepaliveList(
+          openAIImagesKeepaliveForm.header_matches,
+        ),
+      });
+    Object.assign(openAIImagesKeepaliveForm, updated);
+    normalizeOpenAIImagesKeepaliveForm();
+    appStore.showSuccess(t("admin.settings.openAIImagesKeepalive.saved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.settings.openAIImagesKeepalive.saveFailed"),
+      ),
+    );
+  } finally {
+    openAIImagesKeepaliveSaving.value = false;
+  }
+}
+
 // Rectifier 方法
 async function loadRectifierSettings() {
   rectifierLoading.value = true;
@@ -7362,6 +7709,7 @@ onMounted(() => {
   loadAdminApiKey();
   loadOverloadCooldownSettings();
   loadStreamTimeoutSettings();
+  loadOpenAIImagesKeepaliveSettings();
   loadRectifierSettings();
   loadBetaPolicySettings();
   loadProviders();

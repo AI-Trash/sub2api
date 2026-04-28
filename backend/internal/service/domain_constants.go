@@ -310,6 +310,13 @@ const (
 	SettingKeyBetaPolicySettings = "beta_policy_settings"
 
 	// =========================
+	// OpenAI Images JSON Keepalive
+	// =========================
+
+	// SettingKeyOpenAIImagesJSONKeepaliveSettings stores JSON config for non-stream image JSON whitespace keepalive.
+	SettingKeyOpenAIImagesJSONKeepaliveSettings = "openai_images_json_keepalive_settings"
+
+	// =========================
 	// Claude Code Version Check
 	// =========================
 

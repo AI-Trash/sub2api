@@ -5535,6 +5535,25 @@ export default {
         saved: 'Stream timeout settings saved',
         saveFailed: 'Failed to save stream timeout settings'
       },
+      openAIImagesKeepalive: {
+        title: 'OpenAI Images JSON Keepalive',
+        description: 'Send JSON whitespace keepalive for non-stream image clients such as Cherry Studio to reduce idle proxy disconnects.',
+        enabled: 'Enable image JSON whitespace keepalive',
+        enabledHint: 'Only applies to non-stream OpenAI image requests matching Cherry Studio identifiers.',
+        intervalSeconds: 'Keepalive Interval (seconds)',
+        intervalSecondsHint: 'Interval for sending newline whitespace, from 5-30 seconds.',
+        userAgentKeywords: 'User-Agent Keywords',
+        userAgentKeywordsHint: 'Enable when the request User-Agent contains any keyword.',
+        userAgentKeywordPlaceholder: 'e.g., CherryStudio',
+        addUserAgentKeyword: 'Add UA Keyword',
+        headerMatches: 'Header Match Rules',
+        headerMatchesHint: 'Use Header-Name:keyword to match a keyword inside a request header value.',
+        headerMatchPlaceholder: 'e.g., X-Title:Cherry Studio',
+        addHeaderMatch: 'Add Header Rule',
+        note: 'This sends newline whitespace before the final JSON. JSON parsing still works, but if upstream fails after whitespace is sent, the HTTP status may already be committed.',
+        saved: 'Image JSON keepalive settings saved',
+        saveFailed: 'Failed to save image JSON keepalive settings'
+      },
       rectifier: {
         title: 'Request Rectifier',
         description: 'Automatically fix request parameters and retry when upstream returns specific errors',

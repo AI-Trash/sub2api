@@ -2620,6 +2620,63 @@ func (h *SettingHandler) UpdateBetaPolicySettings(c *gin.Context) {
 	response.Success(c, dto.BetaPolicySettings{Rules: outRules})
 }
 
+// GetOpenAIImagesJSONKeepaliveSettings 获取 OpenAI 图片非流式 JSON 空白 keepalive 配置
+//
+// GET /api/v1/admin/settings/openai-images-json-keepalive
+func (h *SettingHandler) GetOpenAIImagesJSONKeepaliveSettings(c *gin.Context) {
+	settings, err := h.settingService.GetOpenAIImagesJSONKeepaliveSettings(c.Request.Context())
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to get OpenAI images JSON keepalive settings")
+		return
+	}
+	response.Success(c, dto.OpenAIImagesJSONKeepaliveSettings{
+		Enabled:                  settings.Enabled,
+		KeepaliveIntervalSeconds: settings.KeepaliveIntervalSeconds,
+		UserAgentKeywords:        settings.UserAgentKeywords,
+		HeaderMatches:            settings.HeaderMatches,
+	})
+}
+
+// UpdateOpenAIImagesJSONKeepaliveSettingsRequest 更新 OpenAI 图片非流式 JSON 空白 keepalive 配置请求
+type UpdateOpenAIImagesJSONKeepaliveSettingsRequest struct {
+	Enabled                  bool     `json:"enabled"`
+	KeepaliveIntervalSeconds int      `json:"keepalive_interval_seconds"`
+	UserAgentKeywords        []string `json:"user_agent_keywords"`
+	HeaderMatches            []string `json:"header_matches"`
+}
+
+// UpdateOpenAIImagesJSONKeepaliveSettings 更新 OpenAI 图片非流式 JSON 空白 keepalive 配置
+//
+// PUT /api/v1/admin/settings/openai-images-json-keepalive
+func (h *SettingHandler) UpdateOpenAIImagesJSONKeepaliveSettings(c *gin.Context) {
+	var req UpdateOpenAIImagesJSONKeepaliveSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	settings := &service.OpenAIImagesJSONKeepaliveSettings{
+		Enabled:                  req.Enabled,
+		KeepaliveIntervalSeconds: req.KeepaliveIntervalSeconds,
+		UserAgentKeywords:        req.UserAgentKeywords,
+		HeaderMatches:            req.HeaderMatches,
+	}
+	if err := h.settingService.SetOpenAIImagesJSONKeepaliveSettings(c.Request.Context(), settings); err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	updated, err := h.settingService.GetOpenAIImagesJSONKeepaliveSettings(c.Request.Context())
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to get updated OpenAI images JSON keepalive settings")
+		return
+	}
+	response.Success(c, dto.OpenAIImagesJSONKeepaliveSettings{
+		Enabled:                  updated.Enabled,
+		KeepaliveIntervalSeconds: updated.KeepaliveIntervalSeconds,
+		UserAgentKeywords:        updated.UserAgentKeywords,
+		HeaderMatches:            updated.HeaderMatches,
+	})
+}
+
 // UpdateStreamTimeoutSettingsRequest 更新流超时配置请求
 type UpdateStreamTimeoutSettingsRequest struct {
 	Enabled                bool   `json:"enabled"`

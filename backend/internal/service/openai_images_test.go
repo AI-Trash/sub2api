@@ -10,6 +10,7 @@ import (
 	"net/textproto"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -294,6 +295,174 @@ func findOpenAIImageTestSSEEvent(events []openAIImageTestSSEEvent, name string) 
 		}
 	}
 	return openAIImageTestSSEEvent{}, false
+}
+
+func TestStartOpenAIImagesPreResponseKeepaliveWritesSSEComment(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/edits", nil)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = req
+
+	stop := startOpenAIImagesPreResponseKeepalive(c, 5*time.Millisecond)
+	time.Sleep(25 * time.Millisecond)
+	stop()
+
+	require.Contains(t, rec.Body.String(), openAIImagesSSEKeepaliveFrame)
+	require.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
+	require.Equal(t, "no-cache", rec.Header().Get("Cache-Control"))
+	require.Equal(t, "no", rec.Header().Get("X-Accel-Buffering"))
+}
+
+func TestStartOpenAIImagesPreResponseKeepaliveCanStopBeforeFirstTick(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/edits", nil)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = req
+
+	stop := startOpenAIImagesPreResponseKeepalive(c, 50*time.Millisecond)
+	stop()
+	time.Sleep(60 * time.Millisecond)
+
+	require.Empty(t, rec.Body.String())
+}
+
+func TestOpenAIImagesJSONKeepaliveMatchesCherryStudioUAAndHeaders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	svc := &OpenAIGatewayService{}
+
+	parsed := &OpenAIImagesRequest{}
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 CherryStudio/1.6.0 Chrome/124.0.0.0")
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = req
+	require.True(t, svc.shouldUseOpenAIImagesJSONKeepalive(c, parsed))
+
+	req = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+	req.Header.Set("X-Title", "Cherry Studio")
+	rec = httptest.NewRecorder()
+	c, _ = gin.CreateTestContext(rec)
+	c.Request = req
+	require.True(t, svc.shouldUseOpenAIImagesJSONKeepalive(c, parsed))
+
+	parsed.Stream = true
+	require.False(t, svc.shouldUseOpenAIImagesJSONKeepalive(c, parsed))
+
+	parsed.Stream = false
+	svc.settingService = NewSettingService(&openAIImagesKeepaliveSettingRepo{
+		values: map[string]string{
+			SettingKeyOpenAIImagesJSONKeepaliveSettings: `{"enabled":false,"keepalive_interval_seconds":10,"user_agent_keywords":["CherryStudio"],"header_matches":["X-Title:Cherry Studio"]}`,
+		},
+	}, nil)
+	req = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 CherryStudio/1.6.0 Chrome/124.0.0.0")
+	rec = httptest.NewRecorder()
+	c, _ = gin.CreateTestContext(rec)
+	c.Request = req
+	require.False(t, svc.shouldUseOpenAIImagesJSONKeepalive(c, parsed))
+}
+
+func TestOpenAIImagesJSONKeepaliveUsesRuntimeSettings(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	svc := &OpenAIGatewayService{
+		settingService: NewSettingService(&openAIImagesKeepaliveSettingRepo{
+			values: map[string]string{
+				SettingKeyOpenAIImagesJSONKeepaliveSettings: `{"enabled":true,"keepalive_interval_seconds":7,"user_agent_keywords":["CustomClient"],"header_matches":["X-Client:custom"]}`,
+			},
+		}, nil),
+	}
+
+	parsed := &OpenAIImagesRequest{}
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+	req.Header.Set("User-Agent", "CustomClient/1.0")
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = req
+
+	require.True(t, svc.shouldUseOpenAIImagesJSONKeepalive(c, parsed))
+	require.Equal(t, 7*time.Second, svc.openAIImagesJSONKeepaliveInterval(c))
+}
+
+type openAIImagesKeepaliveSettingRepo struct {
+	values map[string]string
+}
+
+func (r *openAIImagesKeepaliveSettingRepo) Get(context.Context, string) (*Setting, error) {
+	return nil, ErrSettingNotFound
+}
+
+func (r *openAIImagesKeepaliveSettingRepo) GetValue(_ context.Context, key string) (string, error) {
+	if r != nil && r.values != nil {
+		if value, ok := r.values[key]; ok {
+			return value, nil
+		}
+	}
+	return "", ErrSettingNotFound
+}
+
+func (r *openAIImagesKeepaliveSettingRepo) Set(_ context.Context, key, value string) error {
+	if r.values == nil {
+		r.values = make(map[string]string)
+	}
+	r.values[key] = value
+	return nil
+}
+
+func (r *openAIImagesKeepaliveSettingRepo) GetMultiple(_ context.Context, keys []string) (map[string]string, error) {
+	result := make(map[string]string, len(keys))
+	for _, key := range keys {
+		if value, ok := r.values[key]; ok {
+			result[key] = value
+		}
+	}
+	return result, nil
+}
+
+func (r *openAIImagesKeepaliveSettingRepo) SetMultiple(_ context.Context, settings map[string]string) error {
+	if r.values == nil {
+		r.values = make(map[string]string)
+	}
+	for key, value := range settings {
+		r.values[key] = value
+	}
+	return nil
+}
+
+func (r *openAIImagesKeepaliveSettingRepo) GetAll(context.Context) (map[string]string, error) {
+	result := make(map[string]string, len(r.values))
+	for key, value := range r.values {
+		result[key] = value
+	}
+	return result, nil
+}
+
+func (r *openAIImagesKeepaliveSettingRepo) Delete(_ context.Context, key string) error {
+	delete(r.values, key)
+	return nil
+}
+
+func TestStartOpenAIImagesJSONPreResponseKeepaliveWritesWhitespace(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = req
+
+	stop := startOpenAIImagesJSONPreResponseKeepalive(c, 5*time.Millisecond)
+	time.Sleep(25 * time.Millisecond)
+	stop()
+
+	require.Contains(t, rec.Body.String(), openAIImagesJSONKeepaliveFrame)
+	require.Equal(t, "application/json; charset=utf-8", rec.Header().Get("Content-Type"))
+	require.Equal(t, "no-cache", rec.Header().Get("Cache-Control"))
+	require.Equal(t, "no", rec.Header().Get("X-Accel-Buffering"))
 }
 
 func TestOpenAIGatewayServiceForwardImages_OAuthUsesResponsesAPI(t *testing.T) {

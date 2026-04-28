@@ -937,6 +937,32 @@ export async function updateBetaPolicySettings(
   return data;
 }
 
+// ==================== OpenAI Images JSON Keepalive Settings ====================
+
+export interface OpenAIImagesJSONKeepaliveSettings {
+  enabled: boolean;
+  keepalive_interval_seconds: number;
+  user_agent_keywords: string[];
+  header_matches: string[];
+}
+
+export async function getOpenAIImagesJSONKeepaliveSettings(): Promise<OpenAIImagesJSONKeepaliveSettings> {
+  const { data } = await apiClient.get<OpenAIImagesJSONKeepaliveSettings>(
+    "/admin/settings/openai-images-json-keepalive",
+  );
+  return data;
+}
+
+export async function updateOpenAIImagesJSONKeepaliveSettings(
+  settings: OpenAIImagesJSONKeepaliveSettings,
+): Promise<OpenAIImagesJSONKeepaliveSettings> {
+  const { data } = await apiClient.put<OpenAIImagesJSONKeepaliveSettings>(
+    "/admin/settings/openai-images-json-keepalive",
+    settings,
+  );
+  return data;
+}
+
 // --- Web Search Emulation Config ---
 
 export interface WebSearchProviderConfig {
@@ -1013,6 +1039,8 @@ export const settingsAPI = {
   updateRectifierSettings,
   getBetaPolicySettings,
   updateBetaPolicySettings,
+  getOpenAIImagesJSONKeepaliveSettings,
+  updateOpenAIImagesJSONKeepaliveSettings,
   getWebSearchEmulationConfig,
   updateWebSearchEmulationConfig,
   testWebSearchEmulation,

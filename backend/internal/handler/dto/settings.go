@@ -298,6 +298,14 @@ type BetaPolicySettings struct {
 	Rules []BetaPolicyRule `json:"rules"`
 }
 
+// OpenAIImagesJSONKeepaliveSettings OpenAI 图片非流式 JSON 空白 keepalive 配置 DTO
+type OpenAIImagesJSONKeepaliveSettings struct {
+	Enabled                  bool     `json:"enabled"`
+	KeepaliveIntervalSeconds int      `json:"keepalive_interval_seconds"`
+	UserAgentKeywords        []string `json:"user_agent_keywords"`
+	HeaderMatches            []string `json:"header_matches"`
+}
+
 // ParseCustomMenuItems parses a JSON string into a slice of CustomMenuItem.
 // Returns empty slice on empty/invalid input.
 func ParseCustomMenuItems(raw string) []CustomMenuItem {

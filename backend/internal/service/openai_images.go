@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -16,8 +17,10 @@ import (
 	"net/textproto"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
@@ -39,6 +42,10 @@ const (
 	openAIImageMaxDownloadBytes    = 20 << 20 // 20MB per image download
 	openAIImageMaxUploadPartSize   = 20 << 20 // 20MB per multipart upload part
 	openAIImagesResponsesMainModel = "gpt-5.4-mini"
+	openAIImagesSSEKeepaliveFrame  = ":\n\n"
+	openAIImagesJSONKeepaliveFrame = "\n"
+
+	openAIImagesJSONKeepaliveSettingsContextKey = "openai_images_json_keepalive_settings"
 )
 
 type OpenAIImagesCapability string
@@ -548,8 +555,14 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
+	jsonKeepalive := s.shouldUseOpenAIImagesJSONKeepalive(c, parsed)
+	stopPreResponseKeepalive := s.startOpenAIImagesPreResponseKeepalive(c, parsed)
+	if jsonKeepalive {
+		stopPreResponseKeepalive = startOpenAIImagesJSONPreResponseKeepalive(c, s.openAIImagesJSONKeepaliveInterval(c))
+	}
 	upstreamStart := time.Now()
 	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+	stopPreResponseKeepalive()
 	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 	if err != nil {
 		safeErr := sanitizeUpstreamErrorMessage(err.Error())
@@ -563,6 +576,11 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 			Kind:               "request_error",
 			Message:            safeErr,
 		})
+		if parsed.Stream {
+			_ = s.writeOpenAIImagesStreamErrorIfStarted(c, safeErr)
+		} else if jsonKeepalive {
+			_ = writeOpenAIImagesJSONErrorIfStarted(c, safeErr)
+		}
 		return nil, fmt.Errorf("upstream request failed: %s", safeErr)
 	}
 	if resp.StatusCode >= 400 {
@@ -571,6 +589,28 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
+		if (parsed.Stream || jsonKeepalive) && c != nil && c.Writer != nil && c.Writer.Written() {
+			if upstreamMsg == "" {
+				upstreamMsg = fmt.Sprintf("upstream error: %d", resp.StatusCode)
+			}
+			setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, "")
+			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+				Platform:           account.Platform,
+				AccountID:          account.ID,
+				AccountName:        account.Name,
+				UpstreamStatusCode: resp.StatusCode,
+				UpstreamRequestID:  resp.Header.Get("x-request-id"),
+				UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
+				Kind:               "http_error",
+				Message:            upstreamMsg,
+			})
+			if parsed.Stream {
+				_ = s.writeOpenAIImagesStreamErrorIfStarted(c, upstreamMsg)
+			} else if jsonKeepalive {
+				_ = writeOpenAIImagesJSONErrorIfStarted(c, upstreamMsg)
+			}
+			return nil, fmt.Errorf("upstream error: %d message=%s", resp.StatusCode, upstreamMsg)
+		}
 		if s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMsg, respBody) {
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				Platform:           account.Platform,
@@ -605,7 +645,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 		imageCount = streamCount
 		firstTokenMs = ttft
 	} else {
-		nonStreamUsage, nonStreamCount, err := s.handleOpenAIImagesNonStreamingResponse(resp, c)
+		nonStreamUsage, nonStreamCount, err := s.handleOpenAIImagesNonStreamingResponse(resp, c, jsonKeepalive)
 		if err != nil {
 			return nil, err
 		}
@@ -771,8 +811,8 @@ func cloneMultipartHeader(src textproto.MIMEHeader) textproto.MIMEHeader {
 	return dst
 }
 
-func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(resp *http.Response, c *gin.Context) (OpenAIUsage, int, error) {
-	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
+func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(resp *http.Response, c *gin.Context, jsonKeepalive bool) (OpenAIUsage, int, error) {
+	body, err := s.readOpenAIImagesNonStreamingResponseBody(resp.Body, c, jsonKeepalive)
 	if err != nil {
 		return OpenAIUsage{}, 0, err
 	}
@@ -801,6 +841,9 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 	}
 	c.Status(resp.StatusCode)
 	c.Header("Content-Type", contentType)
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
 
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
@@ -811,35 +854,436 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 	usage := OpenAIUsage{}
 	imageCount := 0
 	var firstTokenMs *int
+	keepaliveInterval := s.openAIImagesStreamKeepaliveInterval()
+	if keepaliveInterval <= 0 {
+		for {
+			line, err := reader.ReadBytes('\n')
+			if len(line) > 0 {
+				if firstTokenMs == nil {
+					ms := int(time.Since(startTime).Milliseconds())
+					firstTokenMs = &ms
+				}
+				if _, writeErr := c.Writer.Write(line); writeErr != nil {
+					return OpenAIUsage{}, 0, firstTokenMs, writeErr
+				}
+				flusher.Flush()
 
-	for {
-		line, err := reader.ReadBytes('\n')
-		if len(line) > 0 {
-			if firstTokenMs == nil {
-				ms := int(time.Since(startTime).Milliseconds())
-				firstTokenMs = &ms
-			}
-			if _, writeErr := c.Writer.Write(line); writeErr != nil {
-				return OpenAIUsage{}, 0, firstTokenMs, writeErr
-			}
-			flusher.Flush()
-
-			if data, ok := extractOpenAISSEDataLine(strings.TrimRight(string(line), "\r\n")); ok && data != "" && data != "[DONE]" {
-				dataBytes := []byte(data)
-				mergeOpenAIUsage(&usage, dataBytes)
-				if count := extractOpenAIImageCountFromJSONBytes(dataBytes); count > imageCount {
-					imageCount = count
+				if data, ok := extractOpenAISSEDataLine(strings.TrimRight(string(line), "\r\n")); ok && data != "" && data != "[DONE]" {
+					dataBytes := []byte(data)
+					mergeOpenAIUsage(&usage, dataBytes)
+					if count := extractOpenAIImageCountFromJSONBytes(dataBytes); count > imageCount {
+						imageCount = count
+					}
 				}
 			}
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return OpenAIUsage{}, 0, firstTokenMs, err
+			}
 		}
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return OpenAIUsage{}, 0, firstTokenMs, err
+		return usage, imageCount, firstTokenMs, nil
+	}
+
+	events, stopRead := readOpenAIImagesStreamLines(reader)
+	defer stopRead()
+	keepaliveTicker := time.NewTicker(keepaliveInterval)
+	defer keepaliveTicker.Stop()
+	lastDownstreamWriteAt := time.Now()
+
+	for {
+		select {
+		case ev, ok := <-events:
+			if !ok {
+				return usage, imageCount, firstTokenMs, nil
+			}
+			if len(ev.line) > 0 {
+				if firstTokenMs == nil {
+					ms := int(time.Since(startTime).Milliseconds())
+					firstTokenMs = &ms
+				}
+				if _, writeErr := c.Writer.Write(ev.line); writeErr != nil {
+					return OpenAIUsage{}, 0, firstTokenMs, writeErr
+				}
+				flusher.Flush()
+				lastDownstreamWriteAt = time.Now()
+
+				if data, ok := extractOpenAISSEDataLine(strings.TrimRight(string(ev.line), "\r\n")); ok && data != "" && data != "[DONE]" {
+					dataBytes := []byte(data)
+					mergeOpenAIUsage(&usage, dataBytes)
+					if count := extractOpenAIImageCountFromJSONBytes(dataBytes); count > imageCount {
+						imageCount = count
+					}
+				}
+			}
+			if ev.err == io.EOF {
+				return usage, imageCount, firstTokenMs, nil
+			}
+			if ev.err != nil {
+				return OpenAIUsage{}, 0, firstTokenMs, ev.err
+			}
+		case <-keepaliveTicker.C:
+			if time.Since(lastDownstreamWriteAt) < keepaliveInterval {
+				continue
+			}
+			if err := writeOpenAIImagesSSEKeepalive(c, flusher); err != nil {
+				return OpenAIUsage{}, 0, firstTokenMs, err
+			}
+			lastDownstreamWriteAt = time.Now()
+		case <-c.Request.Context().Done():
+			return OpenAIUsage{}, 0, firstTokenMs, c.Request.Context().Err()
 		}
 	}
-	return usage, imageCount, firstTokenMs, nil
+}
+
+type openAIImagesStreamLineEvent struct {
+	line []byte
+	err  error
+}
+
+func readOpenAIImagesStreamLines(reader *bufio.Reader) (<-chan openAIImagesStreamLineEvent, func()) {
+	events := make(chan openAIImagesStreamLineEvent, 16)
+	done := make(chan struct{})
+	var once sync.Once
+
+	send := func(ev openAIImagesStreamLineEvent) bool {
+		select {
+		case events <- ev:
+			return true
+		case <-done:
+			return false
+		}
+	}
+
+	go func() {
+		defer close(events)
+		for {
+			line, err := reader.ReadBytes('\n')
+			if len(line) > 0 || err != nil {
+				if !send(openAIImagesStreamLineEvent{line: line, err: err}) {
+					return
+				}
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	stop := func() {
+		once.Do(func() {
+			close(done)
+		})
+	}
+	return events, stop
+}
+
+func (s *OpenAIGatewayService) readOpenAIImagesNonStreamingResponseBody(reader io.Reader, c *gin.Context, jsonKeepalive bool) ([]byte, error) {
+	if !jsonKeepalive {
+		return ReadUpstreamResponseBody(reader, s.cfg, c, openAITooLargeError)
+	}
+	return readOpenAIImagesResponseBodyWithJSONKeepalive(reader, s.cfg, c, s.openAIImagesJSONKeepaliveInterval(c))
+}
+
+func readOpenAIImagesResponseBodyWithJSONKeepalive(reader io.Reader, cfg *config.Config, c *gin.Context, interval time.Duration) ([]byte, error) {
+	if c == nil || c.Writer == nil || c.Request == nil || interval <= 0 {
+		return ReadUpstreamResponseBody(reader, cfg, c, openAITooLargeError)
+	}
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		return ReadUpstreamResponseBody(reader, cfg, c, openAITooLargeError)
+	}
+
+	type readResult struct {
+		body []byte
+		err  error
+	}
+	results := make(chan readResult, 1)
+	go func() {
+		body, err := readUpstreamResponseBodyLimited(reader, resolveUpstreamResponseReadLimit(cfg))
+		results <- readResult{body: body, err: err}
+	}()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	lastDownstreamWriteAt := time.Now()
+
+	for {
+		select {
+		case result := <-results:
+			if result.err != nil {
+				if errors.Is(result.err, ErrUpstreamResponseBodyTooLarge) {
+					setOpsUpstreamError(c, http.StatusBadGateway, "upstream response too large", "")
+					openAITooLargeError(c)
+				} else if c.Writer.Written() {
+					_ = writeOpenAIImagesJSONErrorIfStarted(c, sanitizeUpstreamErrorMessage(result.err.Error()))
+				}
+				return nil, result.err
+			}
+			return result.body, nil
+		case <-ticker.C:
+			if time.Since(lastDownstreamWriteAt) < interval {
+				continue
+			}
+			if err := writeOpenAIImagesJSONKeepalive(c, flusher); err != nil {
+				return nil, err
+			}
+			lastDownstreamWriteAt = time.Now()
+		case <-c.Request.Context().Done():
+			return nil, c.Request.Context().Err()
+		}
+	}
+}
+
+func (s *OpenAIGatewayService) openAIImagesStreamKeepaliveInterval() time.Duration {
+	if s != nil && s.cfg != nil && s.cfg.Gateway.StreamKeepaliveInterval > 0 {
+		return time.Duration(s.cfg.Gateway.StreamKeepaliveInterval) * time.Second
+	}
+	return 0
+}
+
+func (s *OpenAIGatewayService) startOpenAIImagesPreResponseKeepalive(c *gin.Context, parsed *OpenAIImagesRequest) func() {
+	if parsed == nil || !parsed.Stream {
+		return func() {}
+	}
+	return startOpenAIImagesPreResponseKeepalive(c, s.openAIImagesStreamKeepaliveInterval())
+}
+
+func (s *OpenAIGatewayService) openAIImagesJSONKeepaliveSettings(c *gin.Context) *OpenAIImagesJSONKeepaliveSettings {
+	if c != nil {
+		if value, ok := c.Get(openAIImagesJSONKeepaliveSettingsContextKey); ok {
+			if settings, ok := value.(*OpenAIImagesJSONKeepaliveSettings); ok && settings != nil {
+				return settings
+			}
+		}
+	}
+
+	if s != nil && s.settingService != nil {
+		ctx := context.Background()
+		if c != nil && c.Request != nil {
+			ctx = c.Request.Context()
+		}
+		settings, err := s.settingService.GetOpenAIImagesJSONKeepaliveSettings(ctx)
+		if err == nil && settings != nil {
+			if c != nil {
+				c.Set(openAIImagesJSONKeepaliveSettingsContextKey, settings)
+			}
+			return settings
+		}
+	}
+	settings := DefaultOpenAIImagesJSONKeepaliveSettings()
+	if c != nil {
+		c.Set(openAIImagesJSONKeepaliveSettingsContextKey, settings)
+	}
+	return settings
+}
+
+func (s *OpenAIGatewayService) openAIImagesJSONKeepaliveInterval(c *gin.Context) time.Duration {
+	settings := s.openAIImagesJSONKeepaliveSettings(c)
+	if settings == nil || settings.KeepaliveIntervalSeconds <= 0 {
+		return 0
+	}
+	return time.Duration(settings.KeepaliveIntervalSeconds) * time.Second
+}
+
+func (s *OpenAIGatewayService) shouldUseOpenAIImagesJSONKeepalive(c *gin.Context, parsed *OpenAIImagesRequest) bool {
+	if parsed == nil || parsed.Stream || c == nil || c.Request == nil {
+		return false
+	}
+	settings := s.openAIImagesJSONKeepaliveSettings(c)
+	if settings == nil || !settings.Enabled {
+		return false
+	}
+	if matchOpenAIImagesHeaderKeyword(c.GetHeader("User-Agent"), settings.UserAgentKeywords) {
+		return true
+	}
+	for _, rule := range settings.HeaderMatches {
+		if matchOpenAIImagesHeaderRule(c.Request.Header, rule) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchOpenAIImagesHeaderKeyword(value string, keywords []string) bool {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return false
+	}
+	for _, keyword := range keywords {
+		keyword = strings.ToLower(strings.TrimSpace(keyword))
+		if keyword != "" && strings.Contains(value, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchOpenAIImagesHeaderRule(headers http.Header, rule string) bool {
+	headerName, keyword, ok := strings.Cut(rule, ":")
+	if !ok {
+		return false
+	}
+	headerName = textproto.CanonicalMIMEHeaderKey(strings.TrimSpace(headerName))
+	keyword = strings.TrimSpace(keyword)
+	if headerName == "" || keyword == "" {
+		return false
+	}
+	for _, value := range headers.Values(headerName) {
+		if matchOpenAIImagesHeaderKeyword(value, []string{keyword}) {
+			return true
+		}
+	}
+	return false
+}
+
+func startOpenAIImagesPreResponseKeepalive(c *gin.Context, interval time.Duration) func() {
+	if c == nil || c.Writer == nil || c.Request == nil || interval <= 0 {
+		return func() {}
+	}
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		return func() {}
+	}
+
+	stopCh := make(chan struct{})
+	stoppedCh := make(chan struct{})
+	var once sync.Once
+
+	go func() {
+		defer close(stoppedCh)
+		timer := time.NewTimer(interval)
+		defer timer.Stop()
+		for {
+			select {
+			case <-stopCh:
+				return
+			case <-c.Request.Context().Done():
+				return
+			case <-timer.C:
+				if err := writeOpenAIImagesSSEKeepalive(c, flusher); err != nil {
+					return
+				}
+				timer.Reset(interval)
+			}
+		}
+	}()
+
+	return func() {
+		once.Do(func() {
+			close(stopCh)
+			<-stoppedCh
+		})
+	}
+}
+
+func startOpenAIImagesJSONPreResponseKeepalive(c *gin.Context, interval time.Duration) func() {
+	if c == nil || c.Writer == nil || c.Request == nil || interval <= 0 {
+		return func() {}
+	}
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		return func() {}
+	}
+
+	stopCh := make(chan struct{})
+	stoppedCh := make(chan struct{})
+	var once sync.Once
+
+	go func() {
+		defer close(stoppedCh)
+		timer := time.NewTimer(interval)
+		defer timer.Stop()
+		for {
+			select {
+			case <-stopCh:
+				return
+			case <-c.Request.Context().Done():
+				return
+			case <-timer.C:
+				if err := writeOpenAIImagesJSONKeepalive(c, flusher); err != nil {
+					return
+				}
+				timer.Reset(interval)
+			}
+		}
+	}()
+
+	return func() {
+		once.Do(func() {
+			close(stopCh)
+			<-stoppedCh
+		})
+	}
+}
+
+func writeOpenAIImagesSSEKeepalive(c *gin.Context, flusher http.Flusher) error {
+	if c == nil || c.Writer == nil {
+		return fmt.Errorf("missing response writer")
+	}
+	if !c.Writer.Written() {
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+		c.Header("X-Accel-Buffering", "no")
+	}
+	if _, err := fmt.Fprint(c.Writer, openAIImagesSSEKeepaliveFrame); err != nil {
+		return err
+	}
+	flusher.Flush()
+	return nil
+}
+
+func writeOpenAIImagesJSONKeepalive(c *gin.Context, flusher http.Flusher) error {
+	if c == nil || c.Writer == nil {
+		return fmt.Errorf("missing response writer")
+	}
+	if !c.Writer.Written() {
+		c.Header("Content-Type", "application/json; charset=utf-8")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+		c.Header("X-Accel-Buffering", "no")
+	}
+	if _, err := fmt.Fprint(c.Writer, openAIImagesJSONKeepaliveFrame); err != nil {
+		return err
+	}
+	flusher.Flush()
+	return nil
+}
+
+func (s *OpenAIGatewayService) writeOpenAIImagesStreamErrorIfStarted(c *gin.Context, message string) bool {
+	if c == nil || c.Writer == nil || !c.Writer.Written() {
+		return false
+	}
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		return false
+	}
+	_ = s.writeOpenAIImagesStreamEvent(c, flusher, "error", buildOpenAIImagesStreamErrorBody(message))
+	return true
+}
+
+func writeOpenAIImagesJSONErrorIfStarted(c *gin.Context, message string) bool {
+	if c == nil || c.Writer == nil || !c.Writer.Written() {
+		return false
+	}
+	if _, err := c.Writer.Write(buildOpenAIImagesJSONErrorBody(message)); err != nil {
+		return false
+	}
+	if flusher, ok := c.Writer.(http.Flusher); ok {
+		flusher.Flush()
+	}
+	return true
+}
+
+func buildOpenAIImagesJSONErrorBody(message string) []byte {
+	body := []byte(`{"error":{"type":"upstream_error","message":""}}`)
+	if strings.TrimSpace(message) == "" {
+		message = "upstream request failed"
+	}
+	body, _ = sjson.SetBytes(body, "error.message", message)
+	return body
 }
 
 func mergeOpenAIUsage(dst *OpenAIUsage, body []byte) {

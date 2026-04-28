@@ -377,6 +377,27 @@ type BetaPolicySettings struct {
 	Rules []BetaPolicyRule `json:"rules"`
 }
 
+// OpenAIImagesJSONKeepaliveSettings OpenAI 图片非流式 JSON 空白 keepalive 配置
+type OpenAIImagesJSONKeepaliveSettings struct {
+	Enabled                  bool     `json:"enabled"`
+	KeepaliveIntervalSeconds int      `json:"keepalive_interval_seconds"`
+	UserAgentKeywords        []string `json:"user_agent_keywords"`
+	HeaderMatches            []string `json:"header_matches"`
+}
+
+// DefaultOpenAIImagesJSONKeepaliveSettings 返回默认的 OpenAI 图片 JSON keepalive 配置
+func DefaultOpenAIImagesJSONKeepaliveSettings() *OpenAIImagesJSONKeepaliveSettings {
+	return &OpenAIImagesJSONKeepaliveSettings{
+		Enabled:                  true,
+		KeepaliveIntervalSeconds: 10,
+		UserAgentKeywords:        []string{"CherryStudio"},
+		HeaderMatches: []string{
+			"X-Title:Cherry Studio",
+			"HTTP-Referer:https://cherry-ai.com",
+		},
+	}
+}
+
 // OverloadCooldownSettings 529过载冷却配置
 type OverloadCooldownSettings struct {
 	// Enabled 是否在收到529时暂停账号调度
