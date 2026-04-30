@@ -32,9 +32,11 @@ import (
 const (
 	openAIImagesGenerationsEndpoint = "/v1/images/generations"
 	openAIImagesEditsEndpoint       = "/v1/images/edits"
+	openAIImagesVariationsEndpoint  = "/v1/images/variations"
 
 	openAIImagesGenerationsURL = "https://api.openai.com/v1/images/generations"
 	openAIImagesEditsURL       = "https://api.openai.com/v1/images/edits"
+	openAIImagesVariationsURL  = "https://api.openai.com/v1/images/variations"
 
 	openAIChatGPTStartURL          = "https://chatgpt.com/"
 	openAIChatGPTFilesURL          = "https://chatgpt.com/backend-api/files"
@@ -54,6 +56,7 @@ type OpenAIImagesCapability string
 const (
 	OpenAIImagesCapabilityBasic  OpenAIImagesCapability = "images-basic"
 	OpenAIImagesCapabilityNative OpenAIImagesCapability = "images-native"
+	OpenAIImagesCapabilityDalle2 OpenAIImagesCapability = "images-dall-e-2"
 )
 
 type OpenAIImagesUpload struct {
@@ -99,6 +102,10 @@ type OpenAIImagesRequest struct {
 
 func (r *OpenAIImagesRequest) IsEdits() bool {
 	return r != nil && r.Endpoint == openAIImagesEditsEndpoint
+}
+
+func (r *OpenAIImagesRequest) IsVariations() bool {
+	return r != nil && r.Endpoint == openAIImagesVariationsEndpoint
 }
 
 func (r *OpenAIImagesRequest) StickySessionSeed() string {
@@ -159,7 +166,7 @@ func (s *OpenAIGatewayService) ParseOpenAIImagesRequest(c *gin.Context, body []b
 	}
 
 	applyOpenAIImagesDefaults(req)
-	if err := validateOpenAIImagesModel(req.Model); err != nil {
+	if err := validateOpenAIImagesRequestModel(req); err != nil {
 		return nil, err
 	}
 	req.SizeTier = normalizeOpenAIImageSizeTier(req.Size)
@@ -243,6 +250,9 @@ func parseOpenAIImagesJSONRequest(body []byte, req *OpenAIImagesRequest) error {
 		if len(req.InputImageURLs) == 0 {
 			return fmt.Errorf("images[].image_url is required")
 		}
+	}
+	if req.IsVariations() {
+		return fmt.Errorf("multipart/form-data is required for image variations")
 	}
 	req.HasNativeOptions = hasOpenAINativeImageOptions(func(path string) bool {
 		return gjson.GetBytes(body, path).Exists()
@@ -374,7 +384,7 @@ func parseOpenAIImagesMultipartRequest(body []byte, contentType string, req *Ope
 		}
 	}
 
-	if len(req.Uploads) == 0 && req.IsEdits() {
+	if len(req.Uploads) == 0 && (req.IsEdits() || req.IsVariations()) {
 		return fmt.Errorf("image file is required")
 	}
 	return nil
@@ -395,6 +405,10 @@ func applyOpenAIImagesDefaults(req *OpenAIImagesRequest) {
 		req.Model = strings.TrimSpace(req.Model)
 		return
 	}
+	if req.IsVariations() {
+		req.Model = "dall-e-2"
+		return
+	}
 	req.Model = "gpt-image-2"
 }
 
@@ -413,6 +427,19 @@ func validateOpenAIImagesModel(model string) error {
 	return fmt.Errorf("images endpoint requires an image model, got %q", model)
 }
 
+func validateOpenAIImagesRequestModel(req *OpenAIImagesRequest) error {
+	if req == nil {
+		return fmt.Errorf("images request is required")
+	}
+	if req.IsVariations() {
+		if strings.EqualFold(strings.TrimSpace(req.Model), "dall-e-2") {
+			return nil
+		}
+		return fmt.Errorf("image variations endpoint only supports dall-e-2")
+	}
+	return validateOpenAIImagesModel(req.Model)
+}
+
 func normalizeOpenAIImagesEndpointPath(path string) string {
 	trimmed := strings.TrimSpace(path)
 	switch {
@@ -420,6 +447,8 @@ func normalizeOpenAIImagesEndpointPath(path string) string {
 		return openAIImagesGenerationsEndpoint
 	case strings.Contains(trimmed, "/images/edits"):
 		return openAIImagesEditsEndpoint
+	case strings.Contains(trimmed, "/images/variations"):
+		return openAIImagesVariationsEndpoint
 	default:
 		return ""
 	}
@@ -428,6 +457,9 @@ func normalizeOpenAIImagesEndpointPath(path string) string {
 func classifyOpenAIImagesCapability(req *OpenAIImagesRequest) OpenAIImagesCapability {
 	if req == nil {
 		return OpenAIImagesCapabilityNative
+	}
+	if req.IsVariations() {
+		return OpenAIImagesCapabilityDalle2
 	}
 	if req.ExplicitModel || req.ExplicitSize {
 		return OpenAIImagesCapabilityNative
@@ -521,10 +553,16 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 		requestModel = mapped
 	}
 	if err := validateOpenAIImagesModel(requestModel); err != nil {
-		return nil, err
+		if parsed == nil || !parsed.IsVariations() {
+			return nil, err
+		}
 	}
 	upstreamModel := account.GetMappedModel(requestModel)
-	if err := validateOpenAIImagesModel(upstreamModel); err != nil {
+	if parsed != nil && parsed.IsVariations() {
+		if !strings.EqualFold(strings.TrimSpace(upstreamModel), "dall-e-2") {
+			return nil, fmt.Errorf("image variations endpoint only supports dall-e-2")
+		}
+	} else if err := validateOpenAIImagesModel(upstreamModel); err != nil {
 		return nil, err
 	}
 	logger.LegacyPrintf(
@@ -679,8 +717,11 @@ func (s *OpenAIGatewayService) buildOpenAIImagesRequest(
 	endpoint string,
 ) (*http.Request, error) {
 	targetURL := openAIImagesGenerationsURL
-	if endpoint == openAIImagesEditsEndpoint {
+	switch endpoint {
+	case openAIImagesEditsEndpoint:
 		targetURL = openAIImagesEditsURL
+	case openAIImagesVariationsEndpoint:
+		targetURL = openAIImagesVariationsURL
 	}
 	baseURL := account.GetOpenAIBaseURL()
 	if baseURL != "" {
@@ -985,6 +1026,10 @@ func readOpenAIImagesStreamLines(reader *bufio.Reader) (<-chan openAIImagesStrea
 }
 
 func (s *OpenAIGatewayService) readOpenAIImagesNonStreamingResponseBody(reader io.Reader, c *gin.Context, jsonKeepalive bool) ([]byte, error) {
+	return s.readOpenAIJSONKeepaliveResponseBody(reader, c, jsonKeepalive)
+}
+
+func (s *OpenAIGatewayService) readOpenAIJSONKeepaliveResponseBody(reader io.Reader, c *gin.Context, jsonKeepalive bool) ([]byte, error) {
 	if !jsonKeepalive {
 		return ReadUpstreamResponseBody(reader, s.cfg, c, openAITooLargeError)
 	}
@@ -1094,6 +1139,13 @@ func (s *OpenAIGatewayService) openAIImagesJSONKeepaliveInterval(c *gin.Context)
 
 func (s *OpenAIGatewayService) shouldUseOpenAIImagesJSONKeepalive(c *gin.Context, parsed *OpenAIImagesRequest) bool {
 	if parsed == nil || parsed.Stream || c == nil || c.Request == nil {
+		return false
+	}
+	return s.shouldUseOpenAIJSONKeepalive(c)
+}
+
+func (s *OpenAIGatewayService) shouldUseOpenAIJSONKeepalive(c *gin.Context) bool {
+	if c == nil || c.Request == nil {
 		return false
 	}
 	settings := s.openAIImagesJSONKeepaliveSettings(c)

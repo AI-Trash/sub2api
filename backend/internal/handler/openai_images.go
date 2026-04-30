@@ -20,6 +20,7 @@ import (
 // Images handles OpenAI Images API requests.
 // POST /v1/images/generations
 // POST /v1/images/edits
+// POST /v1/images/variations
 func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	streamStarted := false
 	defer h.recoverResponsesPanic(c, &streamStarted)

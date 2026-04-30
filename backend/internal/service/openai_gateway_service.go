@@ -2290,7 +2290,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		})
 		return nil, err
 	}
-	if hasOpenAIImageGenerationTool(reqBody) {
+	imageGenerationRequest := hasOpenAIImageGenerationTool(reqBody)
+	if imageGenerationRequest {
 		logger.LegacyPrintf(
 			"service.openai_gateway",
 			"[OpenAI] /responses image_generation request inbound_model=%s mapped_model=%s account_type=%s",
@@ -2299,6 +2300,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			account.Type,
 		)
 	}
+	responsesJSONKeepalive := !reqStream && imageGenerationRequest && s.shouldUseOpenAIJSONKeepalive(c)
 	if err := validateCodexSparkInput(reqBody, upstreamModel); err != nil {
 		setOpsUpstreamError(c, http.StatusBadRequest, err.Error(), "")
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -2746,8 +2748,13 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 
 		// Send request
+		stopPreResponseKeepalive := func() {}
+		if responsesJSONKeepalive {
+			stopPreResponseKeepalive = startOpenAIImagesJSONPreResponseKeepalive(c, s.openAIImagesJSONKeepaliveInterval(c))
+		}
 		upstreamStart := time.Now()
 		resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+		stopPreResponseKeepalive()
 		SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 		if err != nil {
 			// Ensure the client receives an error response (handlers assume Forward writes on non-failover errors).
@@ -2761,12 +2768,17 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				Kind:               "request_error",
 				Message:            safeErr,
 			})
-			c.JSON(http.StatusBadGateway, gin.H{
-				"error": gin.H{
-					"type":    "upstream_error",
-					"message": "Upstream request failed",
-				},
-			})
+			if responsesJSONKeepalive {
+				_ = writeOpenAIImagesJSONErrorIfStarted(c, safeErr)
+			}
+			if c != nil && c.Writer != nil && !c.Writer.Written() {
+				c.JSON(http.StatusBadGateway, gin.H{
+					"error": gin.H{
+						"type":    "upstream_error",
+						"message": "Upstream request failed",
+					},
+				})
+			}
 			return nil, fmt.Errorf("upstream request failed: %s", safeErr)
 		}
 
@@ -2779,6 +2791,23 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 			upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 			upstreamCode := extractUpstreamErrorCode(respBody)
+			if responsesJSONKeepalive && c != nil && c.Writer != nil && c.Writer.Written() {
+				if upstreamMsg == "" {
+					upstreamMsg = fmt.Sprintf("upstream error: %d", resp.StatusCode)
+				}
+				setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, "")
+				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+					Platform:           account.Platform,
+					AccountID:          account.ID,
+					AccountName:        account.Name,
+					UpstreamStatusCode: resp.StatusCode,
+					UpstreamRequestID:  resp.Header.Get("x-request-id"),
+					Kind:               "http_error",
+					Message:            upstreamMsg,
+				})
+				_ = writeOpenAIImagesJSONErrorIfStarted(c, upstreamMsg)
+				return nil, fmt.Errorf("upstream error: %d message=%s", resp.StatusCode, upstreamMsg)
+			}
 			if !httpInvalidEncryptedContentRetryTried && resp.StatusCode == http.StatusBadRequest && upstreamCode == "invalid_encrypted_content" {
 				if trimOpenAIEncryptedReasoningItems(reqBody) {
 					body, err = json.Marshal(reqBody)
@@ -2834,7 +2863,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			usage = streamResult.usage
 			firstTokenMs = streamResult.firstTokenMs
 		} else {
-			usage, err = s.handleNonStreamingResponse(ctx, resp, c, account, originalModel, upstreamModel)
+			usage, err = s.handleNonStreamingResponse(ctx, resp, c, account, originalModel, upstreamModel, responsesJSONKeepalive)
 			if err != nil {
 				return nil, err
 			}
@@ -2999,9 +3028,15 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	if c != nil {
 		c.Set("openai_passthrough", true)
 	}
+	responsesJSONKeepalive := !reqStream && hasOpenAIImageGenerationToolJSON(body) && s.shouldUseOpenAIJSONKeepalive(c)
 
+	stopPreResponseKeepalive := func() {}
+	if responsesJSONKeepalive {
+		stopPreResponseKeepalive = startOpenAIImagesJSONPreResponseKeepalive(c, s.openAIImagesJSONKeepaliveInterval(c))
+	}
 	upstreamStart := time.Now()
 	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+	stopPreResponseKeepalive()
 	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 	if err != nil {
 		safeErr := sanitizeUpstreamErrorMessage(err.Error())
@@ -3015,17 +3050,43 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			Kind:               "request_error",
 			Message:            safeErr,
 		})
-		c.JSON(http.StatusBadGateway, gin.H{
-			"error": gin.H{
-				"type":    "upstream_error",
-				"message": "Upstream request failed",
-			},
-		})
+		if responsesJSONKeepalive {
+			_ = writeOpenAIImagesJSONErrorIfStarted(c, safeErr)
+		}
+		if c != nil && c.Writer != nil && !c.Writer.Written() {
+			c.JSON(http.StatusBadGateway, gin.H{
+				"error": gin.H{
+					"type":    "upstream_error",
+					"message": "Upstream request failed",
+				},
+			})
+		}
 		return nil, fmt.Errorf("upstream request failed: %s", safeErr)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
+		if responsesJSONKeepalive && c != nil && c.Writer != nil && c.Writer.Written() {
+			respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+			upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
+			upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
+			if upstreamMsg == "" {
+				upstreamMsg = fmt.Sprintf("upstream error: %d", resp.StatusCode)
+			}
+			setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, "")
+			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+				Platform:           account.Platform,
+				AccountID:          account.ID,
+				AccountName:        account.Name,
+				UpstreamStatusCode: resp.StatusCode,
+				UpstreamRequestID:  resp.Header.Get("x-request-id"),
+				Passthrough:        true,
+				Kind:               "http_error",
+				Message:            upstreamMsg,
+			})
+			_ = writeOpenAIImagesJSONErrorIfStarted(c, upstreamMsg)
+			return nil, fmt.Errorf("upstream error: %d message=%s", resp.StatusCode, upstreamMsg)
+		}
 		// 透传模式默认保持原样代理；但 429/529 属于网关必须兜底的
 		// 上游容量类错误，应先触发多账号 failover 以维持基础 SLA。
 		if shouldFailoverOpenAIPassthroughResponse(resp.StatusCode) {
@@ -3044,7 +3105,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		usage = result.usage
 		firstTokenMs = result.firstTokenMs
 	} else {
-		usage, err = s.handleNonStreamingResponsePassthrough(ctx, resp, c, reqModel, upstreamPassthroughModel)
+		usage, err = s.handleNonStreamingResponsePassthrough(ctx, resp, c, reqModel, upstreamPassthroughModel, responsesJSONKeepalive)
 		if err != nil {
 			return nil, err
 		}
@@ -3647,10 +3708,16 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	c *gin.Context,
 	originalModel string,
 	mappedModel string,
+	jsonKeepaliveOpt ...bool,
 ) (*OpenAIUsage, error) {
-	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
+	jsonKeepalive := len(jsonKeepaliveOpt) > 0 && jsonKeepaliveOpt[0]
+	body, err := s.readOpenAIJSONKeepaliveResponseBody(resp.Body, c, jsonKeepalive)
 	if err != nil {
 		return nil, err
+	}
+	if jsonKeepalive {
+		c.Header("Cache-Control", openAIImagesKeepaliveCacheCtl)
+		c.Header("X-Accel-Buffering", "no")
 	}
 
 	// Detect SSE responses from upstream and convert to JSON.
@@ -4627,10 +4694,15 @@ func extractOpenAIUsageFromJSONBytes(body []byte) (OpenAIUsage, bool) {
 	}, true
 }
 
-func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, originalModel, mappedModel string) (*OpenAIUsage, error) {
-	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
+func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, originalModel, mappedModel string, jsonKeepaliveOpt ...bool) (*OpenAIUsage, error) {
+	jsonKeepalive := len(jsonKeepaliveOpt) > 0 && jsonKeepaliveOpt[0]
+	body, err := s.readOpenAIJSONKeepaliveResponseBody(resp.Body, c, jsonKeepalive)
 	if err != nil {
 		return nil, err
+	}
+	if jsonKeepalive {
+		c.Header("Cache-Control", openAIImagesKeepaliveCacheCtl)
+		c.Header("X-Accel-Buffering", "no")
 	}
 
 	// Detect SSE responses for ALL account types via Content-Type header.
@@ -4670,7 +4742,6 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 			contentType = upstreamType
 		}
 	}
-
 	c.Data(resp.StatusCode, contentType, body)
 
 	return usage, nil

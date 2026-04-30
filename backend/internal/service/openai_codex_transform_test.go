@@ -472,6 +472,13 @@ func TestNormalizeOpenAIResponsesImageGenerationTools_RewritesLegacyFields(t *te
 	require.False(t, hasCompression)
 }
 
+func TestHasOpenAIImageGenerationToolJSON(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.4","tools":[{"type":"web_search"},{"type":"image_generation","output_format":"png"}]}`)
+	require.True(t, hasOpenAIImageGenerationToolJSON(body))
+	require.False(t, hasOpenAIImageGenerationToolJSON([]byte(`{"tools":[{"type":"web_search"}]}`)))
+	require.False(t, hasOpenAIImageGenerationToolJSON([]byte(`not-json`)))
+}
+
 func TestEnsureOpenAIResponsesImageGenerationTool_NoTools(t *testing.T) {
 	reqBody := map[string]any{
 		"model": "gpt-5.4",

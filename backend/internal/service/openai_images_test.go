@@ -75,6 +75,36 @@ func TestOpenAIGatewayServiceParseOpenAIImagesRequest_MultipartEdit(t *testing.T
 	require.Equal(t, OpenAIImagesCapabilityNative, parsed.RequiredCapability)
 }
 
+func TestOpenAIGatewayServiceParseOpenAIImagesRequest_MultipartVariation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	require.NoError(t, writer.WriteField("size", "1024x1024"))
+	part, err := writer.CreateFormFile("image", "source.png")
+	require.NoError(t, err)
+	_, err = part.Write([]byte("fake-image-bytes"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/variations", bytes.NewReader(body.Bytes()))
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = req
+
+	svc := &OpenAIGatewayService{}
+	parsed, err := svc.ParseOpenAIImagesRequest(c, body.Bytes())
+	require.NoError(t, err)
+	require.NotNil(t, parsed)
+	require.Equal(t, "/v1/images/variations", parsed.Endpoint)
+	require.True(t, parsed.Multipart)
+	require.Equal(t, "dall-e-2", parsed.Model)
+	require.Equal(t, "1024x1024", parsed.Size)
+	require.Len(t, parsed.Uploads, 1)
+	require.Equal(t, OpenAIImagesCapabilityDalle2, parsed.RequiredCapability)
+}
+
 func TestOpenAIGatewayServiceParseOpenAIImagesRequest_MultipartEditWithMaskAndNativeOptions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -257,6 +287,10 @@ func TestAccountSupportsOpenAIImageCapability_OAuthSupportsNative(t *testing.T) 
 
 	require.True(t, account.SupportsOpenAIImageCapability(OpenAIImagesCapabilityBasic))
 	require.True(t, account.SupportsOpenAIImageCapability(OpenAIImagesCapabilityNative))
+	require.False(t, account.SupportsOpenAIImageCapability(OpenAIImagesCapabilityDalle2))
+
+	account.Type = AccountTypeAPIKey
+	require.True(t, account.SupportsOpenAIImageCapability(OpenAIImagesCapabilityDalle2))
 }
 
 type openAIImageTestSSEEvent struct {

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/tidwall/gjson"
 )
 
 var codexModelMap = map[string]string{
@@ -457,6 +459,22 @@ func hasOpenAIImageGenerationTool(reqBody map[string]any) bool {
 			continue
 		}
 		if strings.TrimSpace(firstNonEmptyString(toolMap["type"])) == "image_generation" {
+			return true
+		}
+	}
+	return false
+}
+
+func hasOpenAIImageGenerationToolJSON(body []byte) bool {
+	if len(body) == 0 || !gjson.ValidBytes(body) {
+		return false
+	}
+	tools := gjson.GetBytes(body, "tools")
+	if !tools.IsArray() {
+		return false
+	}
+	for _, tool := range tools.Array() {
+		if strings.TrimSpace(tool.Get("type").String()) == "image_generation" {
 			return true
 		}
 	}
