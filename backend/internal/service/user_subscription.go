@@ -2,6 +2,12 @@ package service
 
 import "time"
 
+const (
+	subscriptionDailyWindow   = 24 * time.Hour
+	subscriptionWeeklyWindow  = 7 * subscriptionDailyWindow
+	subscriptionMonthlyWindow = 30 * subscriptionDailyWindow
+)
+
 type UserSubscription struct {
 	ID      int64
 	UserID  int64
@@ -51,48 +57,71 @@ func (s *UserSubscription) IsWindowActivated() bool {
 }
 
 func (s *UserSubscription) NeedsDailyReset() bool {
-	if s.DailyWindowStart == nil {
-		return false
-	}
-	return time.Since(*s.DailyWindowStart) >= 24*time.Hour
+	return s.needsWindowResetAt(s.DailyWindowStart, subscriptionDailyWindow, time.Now())
 }
 
 func (s *UserSubscription) NeedsWeeklyReset() bool {
-	if s.WeeklyWindowStart == nil {
-		return false
-	}
-	return time.Since(*s.WeeklyWindowStart) >= 7*24*time.Hour
+	return s.needsWindowResetAt(s.WeeklyWindowStart, subscriptionWeeklyWindow, time.Now())
 }
 
 func (s *UserSubscription) NeedsMonthlyReset() bool {
-	if s.MonthlyWindowStart == nil {
-		return false
-	}
-	return time.Since(*s.MonthlyWindowStart) >= 30*24*time.Hour
+	return s.needsWindowResetAt(s.MonthlyWindowStart, subscriptionMonthlyWindow, time.Now())
 }
 
 func (s *UserSubscription) DailyResetTime() *time.Time {
-	if s.DailyWindowStart == nil {
-		return nil
-	}
-	t := s.DailyWindowStart.Add(24 * time.Hour)
-	return &t
+	return s.windowResetTimeAt(s.DailyWindowStart, subscriptionDailyWindow, time.Now())
 }
 
 func (s *UserSubscription) WeeklyResetTime() *time.Time {
-	if s.WeeklyWindowStart == nil {
-		return nil
-	}
-	t := s.WeeklyWindowStart.Add(7 * 24 * time.Hour)
-	return &t
+	return s.windowResetTimeAt(s.WeeklyWindowStart, subscriptionWeeklyWindow, time.Now())
 }
 
 func (s *UserSubscription) MonthlyResetTime() *time.Time {
-	if s.MonthlyWindowStart == nil {
+	return s.windowResetTimeAt(s.MonthlyWindowStart, subscriptionMonthlyWindow, time.Now())
+}
+
+func (s *UserSubscription) needsWindowResetAt(windowStart *time.Time, duration time.Duration, now time.Time) bool {
+	start, ok := s.effectiveWindowStart(windowStart)
+	if !ok {
+		return false
+	}
+	return !now.Before(start.Add(duration))
+}
+
+func (s *UserSubscription) currentWindowStartAt(windowStart *time.Time, duration time.Duration, now time.Time) (time.Time, bool) {
+	start, ok := s.effectiveWindowStart(windowStart)
+	if !ok {
+		return time.Time{}, false
+	}
+	return subscriptionWindowStartForNow(start, duration, now), true
+}
+
+func (s *UserSubscription) windowResetTimeAt(windowStart *time.Time, duration time.Duration, now time.Time) *time.Time {
+	start, ok := s.currentWindowStartAt(windowStart, duration, now)
+	if !ok {
 		return nil
 	}
-	t := s.MonthlyWindowStart.Add(30 * 24 * time.Hour)
+	t := start.Add(duration)
 	return &t
+}
+
+func (s *UserSubscription) effectiveWindowStart(windowStart *time.Time) (time.Time, bool) {
+	if windowStart == nil {
+		return time.Time{}, false
+	}
+	start := *windowStart
+	if !s.StartsAt.IsZero() && start.Before(s.StartsAt) {
+		start = s.StartsAt
+	}
+	return start, true
+}
+
+func subscriptionWindowStartForNow(anchor time.Time, duration time.Duration, now time.Time) time.Time {
+	if duration <= 0 || anchor.IsZero() || now.Before(anchor) {
+		return anchor
+	}
+	periods := int64(now.Sub(anchor) / duration)
+	return anchor.Add(time.Duration(periods) * duration)
 }
 
 func (s *UserSubscription) CheckDailyLimit(group *Group, additionalCost float64) bool {
