@@ -309,6 +309,8 @@ func openaiFastPolicySettingsFromDTO(s *dto.OpenAIFastPolicySettings) *service.O
 			tier = service.OpenAIFastTierAny
 		}
 		rules[i].ServiceTier = tier
+		rules[i].TargetServiceTier = strings.ToLower(strings.TrimSpace(rules[i].TargetServiceTier))
+		rules[i].FallbackTargetServiceTier = strings.ToLower(strings.TrimSpace(rules[i].FallbackTargetServiceTier))
 	}
 	return &service.OpenAIFastPolicySettings{Rules: rules}
 }

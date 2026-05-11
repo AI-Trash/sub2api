@@ -3973,13 +3973,19 @@ func (s *SettingService) SetOpenAIFastPolicySettings(ctx context.Context, settin
 	}
 
 	validActions := map[string]bool{
-		BetaPolicyActionPass: true, BetaPolicyActionFilter: true, BetaPolicyActionBlock: true,
+		BetaPolicyActionPass: true, BetaPolicyActionFilter: true, BetaPolicyActionBlock: true, BetaPolicyActionSet: true,
 	}
 	validScopes := map[string]bool{
 		BetaPolicyScopeAll: true, BetaPolicyScopeOAuth: true, BetaPolicyScopeAPIKey: true, BetaPolicyScopeBedrock: true,
 	}
 	validTiers := map[string]bool{
-		OpenAIFastTierAny: true, OpenAIFastTierPriority: true, OpenAIFastTierFlex: true,
+		OpenAIFastTierAny: true, OpenAIFastTierAnyOrNone: true, OpenAIFastTierNone: true,
+		OpenAIFastTierPriority: true, OpenAIFastTierFlex: true, OpenAIFastTierAuto: true,
+		OpenAIFastTierDefault: true, OpenAIFastTierScale: true,
+	}
+	validSetTargetTiers := map[string]bool{
+		OpenAIFastTierPriority: true, OpenAIFastTierFlex: true, OpenAIFastTierAuto: true,
+		OpenAIFastTierDefault: true, OpenAIFastTierScale: true,
 	}
 
 	for i, rule := range settings.Rules {
@@ -3994,6 +4000,15 @@ func (s *SettingService) SetOpenAIFastPolicySettings(ctx context.Context, settin
 		if !validActions[rule.Action] {
 			return fmt.Errorf("rule[%d]: invalid action %q", i, rule.Action)
 		}
+		targetTier := strings.ToLower(strings.TrimSpace(rule.TargetServiceTier))
+		if rule.Action == BetaPolicyActionSet {
+			if !validSetTargetTiers[targetTier] {
+				return fmt.Errorf("rule[%d]: invalid target_service_tier %q", i, rule.TargetServiceTier)
+			}
+			settings.Rules[i].TargetServiceTier = targetTier
+		} else {
+			settings.Rules[i].TargetServiceTier = ""
+		}
 		if !validScopes[rule.Scope] {
 			return fmt.Errorf("rule[%d]: invalid scope %q", i, rule.Scope)
 		}
@@ -4006,6 +4021,15 @@ func (s *SettingService) SetOpenAIFastPolicySettings(ctx context.Context, settin
 		}
 		if rule.FallbackAction != "" && !validActions[rule.FallbackAction] {
 			return fmt.Errorf("rule[%d]: invalid fallback_action %q", i, rule.FallbackAction)
+		}
+		fallbackTargetTier := strings.ToLower(strings.TrimSpace(rule.FallbackTargetServiceTier))
+		if rule.FallbackAction == BetaPolicyActionSet {
+			if !validSetTargetTiers[fallbackTargetTier] {
+				return fmt.Errorf("rule[%d]: invalid fallback_target_service_tier %q", i, rule.FallbackTargetServiceTier)
+			}
+			settings.Rules[i].FallbackTargetServiceTier = fallbackTargetTier
+		} else {
+			settings.Rules[i].FallbackTargetServiceTier = ""
 		}
 	}
 

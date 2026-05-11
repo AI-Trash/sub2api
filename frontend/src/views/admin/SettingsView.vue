@@ -1401,8 +1401,13 @@
                       @update:modelValue="
                         rule.service_tier = $event as
                           | 'all'
+                          | 'any'
+                          | 'none'
                           | 'priority'
                           | 'flex'
+                          | 'auto'
+                          | 'default'
+                          | 'scale'
                       "
                       :options="openaiFastPolicyTierOptions"
                     />
@@ -1418,7 +1423,11 @@
                     <Select
                       :modelValue="rule.action"
                       @update:modelValue="
-                        rule.action = $event as 'pass' | 'filter' | 'block'
+                        rule.action = $event as
+                          | 'pass'
+                          | 'filter'
+                          | 'block'
+                          | 'set'
                       "
                       :options="openaiFastPolicyActionOptions"
                     />
@@ -1443,6 +1452,30 @@
                       :options="openaiFastPolicyScopeOptions"
                     />
                   </div>
+                </div>
+
+                <!-- Target Service Tier (only when action=set) -->
+                <div v-if="rule.action === 'set'" class="mt-3">
+                  <label
+                    class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                  >
+                    {{ t("admin.settings.openaiFastPolicy.targetServiceTier") }}
+                  </label>
+                  <Select
+                    :modelValue="rule.target_service_tier || 'priority'"
+                    @update:modelValue="
+                      rule.target_service_tier = $event as
+                        | 'priority'
+                        | 'flex'
+                        | 'auto'
+                        | 'default'
+                        | 'scale'
+                    "
+                    :options="openaiFastPolicyTargetTierOptions"
+                  />
+                  <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                    {{ t("admin.settings.openaiFastPolicy.targetServiceTierHint") }}
+                  </p>
                 </div>
 
                 <!-- Error Message (only when action=block) -->
@@ -1557,6 +1590,7 @@
                         | 'pass'
                         | 'filter'
                         | 'block'
+                        | 'set'
                     "
                     :options="openaiFastPolicyActionOptions"
                   />
@@ -1575,6 +1609,24 @@
                           'admin.settings.openaiFastPolicy.fallbackErrorMessagePlaceholder',
                         )
                       "
+                    />
+                  </div>
+                  <div v-if="rule.fallback_action === 'set'" class="mt-2">
+                    <Select
+                      :modelValue="
+                        rule.fallback_target_service_tier ||
+                        rule.target_service_tier ||
+                        'priority'
+                      "
+                      @update:modelValue="
+                        rule.fallback_target_service_tier = $event as
+                          | 'priority'
+                          | 'flex'
+                          | 'auto'
+                          | 'default'
+                          | 'scale'
+                      "
+                      :options="openaiFastPolicyTargetTierOptions"
                     />
                   </div>
                 </div>
@@ -7582,6 +7634,11 @@ async function loadSettings() {
       openaiFastPolicyForm.rules =
         settings.openai_fast_policy_settings.rules.map((rule) => ({
           ...rule,
+          target_service_tier: rule.target_service_tier || "priority",
+          fallback_target_service_tier:
+            rule.fallback_target_service_tier ||
+            rule.target_service_tier ||
+            "priority",
           model_whitelist: rule.model_whitelist
             ? [...rule.model_whitelist]
             : [],
@@ -8007,6 +8064,10 @@ async function saveSettings() {
           return {
             service_tier: rule.service_tier,
             action: rule.action,
+            target_service_tier:
+              rule.action === "set"
+                ? rule.target_service_tier || "priority"
+                : undefined,
             scope: rule.scope,
             error_message:
               rule.action === "block" ? rule.error_message : undefined,
@@ -8014,6 +8075,12 @@ async function saveSettings() {
             fallback_action: hasWhitelist
               ? rule.fallback_action || "pass"
               : undefined,
+            fallback_target_service_tier:
+              hasWhitelist && rule.fallback_action === "set"
+                ? rule.fallback_target_service_tier ||
+                  rule.target_service_tier ||
+                  "priority"
+                : undefined,
             fallback_error_message:
               hasWhitelist && rule.fallback_action === "block"
                 ? rule.fallback_error_message
@@ -8083,6 +8150,11 @@ async function saveSettings() {
       openaiFastPolicyForm.rules =
         updated.openai_fast_policy_settings.rules.map((rule) => ({
           ...rule,
+          target_service_tier: rule.target_service_tier || "priority",
+          fallback_target_service_tier:
+            rule.fallback_target_service_tier ||
+            rule.target_service_tier ||
+            "priority",
           model_whitelist: rule.model_whitelist
             ? [...rule.model_whitelist]
             : [],
@@ -8544,17 +8616,34 @@ async function loadBetaPolicySettings() {
 
 const openaiFastPolicyTierOptions = computed(() => [
   { value: "all", label: t("admin.settings.openaiFastPolicy.tierAll") },
+  { value: "any", label: t("admin.settings.openaiFastPolicy.tierAny") },
+  { value: "none", label: t("admin.settings.openaiFastPolicy.tierNone") },
   {
     value: "priority",
     label: t("admin.settings.openaiFastPolicy.tierPriority"),
   },
   { value: "flex", label: t("admin.settings.openaiFastPolicy.tierFlex") },
+  { value: "auto", label: t("admin.settings.openaiFastPolicy.tierAuto") },
+  { value: "default", label: t("admin.settings.openaiFastPolicy.tierDefault") },
+  { value: "scale", label: t("admin.settings.openaiFastPolicy.tierScale") },
 ]);
 
 const openaiFastPolicyActionOptions = computed(() => [
   { value: "pass", label: t("admin.settings.openaiFastPolicy.actionPass") },
   { value: "filter", label: t("admin.settings.openaiFastPolicy.actionFilter") },
   { value: "block", label: t("admin.settings.openaiFastPolicy.actionBlock") },
+  { value: "set", label: t("admin.settings.openaiFastPolicy.actionSet") },
+]);
+
+const openaiFastPolicyTargetTierOptions = computed(() => [
+  {
+    value: "priority",
+    label: t("admin.settings.openaiFastPolicy.tierPriority"),
+  },
+  { value: "flex", label: t("admin.settings.openaiFastPolicy.tierFlex") },
+  { value: "auto", label: t("admin.settings.openaiFastPolicy.tierAuto") },
+  { value: "default", label: t("admin.settings.openaiFastPolicy.tierDefault") },
+  { value: "scale", label: t("admin.settings.openaiFastPolicy.tierScale") },
 ]);
 
 const openaiFastPolicyScopeOptions = computed(() => [
@@ -8571,10 +8660,12 @@ function addOpenAIFastPolicyRule() {
   openaiFastPolicyForm.rules.push({
     service_tier: "priority",
     action: "filter",
+    target_service_tier: "priority",
     scope: "all",
     error_message: "",
     model_whitelist: [],
     fallback_action: "pass",
+    fallback_target_service_tier: "priority",
     fallback_error_message: "",
   });
 }

@@ -991,12 +991,22 @@ export async function updateRectifierSettings(
  * Matches backend dto.OpenAIFastPolicyRule.
  */
 export interface OpenAIFastPolicyRule {
-  service_tier: "all" | "priority" | "flex";
-  action: "pass" | "filter" | "block";
+  service_tier:
+    | "all"
+    | "any"
+    | "none"
+    | "priority"
+    | "flex"
+    | "auto"
+    | "default"
+    | "scale";
+  action: "pass" | "filter" | "block" | "set";
+  target_service_tier?: "priority" | "flex" | "auto" | "default" | "scale";
   scope: "all" | "oauth" | "apikey" | "bedrock";
   error_message?: string;
   model_whitelist?: string[];
-  fallback_action?: "pass" | "filter" | "block";
+  fallback_action?: "pass" | "filter" | "block" | "set";
+  fallback_target_service_tier?: "priority" | "flex" | "auto" | "default" | "scale";
   fallback_error_message?: string;
 }
 

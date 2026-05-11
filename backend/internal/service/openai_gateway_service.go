@@ -2497,43 +2497,50 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 
 	// Apply OpenAI fast policy (参照 Claude BetaPolicy 的 fast-mode 过滤)：
 	// 针对 body 的 service_tier 字段（"priority" 即 fast，"flex"），按策略
-	// 执行 filter（删除字段）或 block（拒绝请求）。对 gpt-5.5 等模型屏蔽
-	// fast 时在此生效。
+	// 执行 filter（删除字段）、block（拒绝请求）或 set（强制改写）。
+	// 对 gpt-5.5 等模型屏蔽或强制 fast 时在此生效。
 	//
 	// 注意：
 	//   1. 此处统一使用 upstreamModel（已经过 GetMappedModel +
 	//      normalizeOpenAIModelForUpstream + Codex OAuth normalize），与
 	//      chat-completions / messages 入口保持一致，避免不同入口因为模型
 	//      维度不同而出现 whitelist 命中差异。
-	//   2. action=pass 时也要把 raw "fast" 归一化为 "priority" 写回 body，
+	//   2. action=pass/set 时也要把 raw "fast" 归一化为 "priority" 写回 body，
 	//      否则 native /responses 入口透传 "fast" 给上游会被拒。chat-
 	//      completions 入口由 normalizeResponsesBodyServiceTier 完成同一
 	//      行为，这里手工实现等效逻辑。
-	if rawTier, ok := reqBody["service_tier"].(string); ok {
-		if normTier := normalizedOpenAIServiceTierValue(rawTier); normTier != "" {
-			action, errMsg := s.evaluateOpenAIFastPolicy(ctx, account, upstreamModel, normTier)
-			switch action {
-			case BetaPolicyActionBlock:
-				msg := errMsg
-				if msg == "" {
-					msg = fmt.Sprintf("openai service_tier=%s is not allowed for model %s", normTier, upstreamModel)
-				}
-				blocked := &OpenAIFastBlockedError{Message: msg}
-				writeOpenAIFastPolicyBlockedResponse(c, blocked)
-				return nil, blocked
-			case BetaPolicyActionFilter:
-				delete(reqBody, "service_tier")
-				bodyModified = true
-				disablePatch()
-			default:
-				// pass：若客户端传的是别名 "fast"，归一化为 "priority"
-				// 后写回 body，确保上游收到的是其能识别的规范值。
-				if normTier != rawTier {
-					reqBody["service_tier"] = normTier
-					bodyModified = true
-					markPatchSet("service_tier", normTier)
-				}
-			}
+	rawTier, _ := reqBody["service_tier"].(string)
+	normTier := normalizedOpenAIServiceTierValue(rawTier)
+	decision := s.evaluateOpenAIFastPolicyDecision(ctx, account, upstreamModel, normTier)
+	switch decision.Action {
+	case BetaPolicyActionBlock:
+		msg := decision.ErrorMessage
+		if msg == "" {
+			msg = fmt.Sprintf("openai service_tier=%s is not allowed for model %s", normTier, upstreamModel)
+		}
+		blocked := &OpenAIFastBlockedError{Message: msg}
+		writeOpenAIFastPolicyBlockedResponse(c, blocked)
+		return nil, blocked
+	case BetaPolicyActionFilter:
+		if _, exists := reqBody["service_tier"]; exists {
+			delete(reqBody, "service_tier")
+			bodyModified = true
+			disablePatch()
+		}
+	case BetaPolicyActionSet:
+		targetTier := normalizedOpenAIServiceTierValue(decision.TargetServiceTier)
+		if targetTier != "" && targetTier != rawTier {
+			reqBody["service_tier"] = targetTier
+			bodyModified = true
+			markPatchSet("service_tier", targetTier)
+		}
+	default:
+		// pass：若客户端传的是别名 "fast"，归一化为 "priority"
+		// 后写回 body，确保上游收到的是其能识别的规范值。
+		if normTier != "" && normTier != rawTier {
+			reqBody["service_tier"] = normTier
+			bodyModified = true
+			markPatchSet("service_tier", normTier)
 		}
 	}
 
@@ -2966,7 +2973,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 
 		reasoningEffort := extractOpenAIReasoningEffort(reqBody, originalModel)
-		serviceTier := extractOpenAIServiceTier(reqBody)
+		serviceTier := extractOpenAIServiceTierFromMaybeMutatedMap(reqBody)
 
 		forwardResult := &OpenAIForwardResult{
 			RequestID:       resp.Header.Get("x-request-id"),
@@ -6109,14 +6116,25 @@ type OpenAIFastBlockedError struct {
 
 func (e *OpenAIFastBlockedError) Error() string { return e.Message }
 
-// evaluateOpenAIFastPolicy returns the action and error message that should be
-// applied for a request with the given account/model/service_tier. When the
-// policy service is unavailable or no rule matches, it returns
-// (BetaPolicyActionPass, "") so callers can short-circuit safely.
+type openAIFastPolicyDecision struct {
+	Action            string
+	ErrorMessage      string
+	TargetServiceTier string
+}
+
+func passOpenAIFastPolicyDecision() openAIFastPolicyDecision {
+	return openAIFastPolicyDecision{Action: BetaPolicyActionPass}
+}
+
+// evaluateOpenAIFastPolicy returns the effective action for a request with the
+// given account/model/service_tier. When the policy service is unavailable or
+// no rule matches, it returns pass so callers can short-circuit safely.
 //
 // Matching rules:
 //   - Scope filters by account type (all / oauth / apikey / bedrock)
-//   - ServiceTier must be empty (= any), "all", or equal the normalized tier
+//   - ServiceTier matches "all" for recognized present tiers, "any" for
+//     present or absent tiers, "none" for absent/unknown tiers, or an exact
+//     normalized tier value
 //   - ModelWhitelist narrows the rule to specific models; FallbackAction
 //     handles the non-matching case (default: pass)
 //
@@ -6124,27 +6142,29 @@ func (e *OpenAIFastBlockedError) Error() string { return e.Message }
 //   - BetaPolicy 处理的是 anthropic-beta header 中的 token 集合，不同
 //     规则可能针对不同 token，filter 需要累加成 set；block 则 first-match。
 //   - OpenAI fast policy 操作的是单个字段 service_tier：filter 即删字段，
-//     没有可累加的对象。一次请求只携带一个 service_tier，规则的 tier
-//     维度天然互斥；同一 (scope, tier) 下若多条规则的 model whitelist
-//     发生重叠，admin 可通过规则顺序明确意图。因此采用 first-match 而
-//     非 BetaPolicy 那样的"block 覆盖 filter 覆盖 pass"语义。
+//     set 即重写字段，没有可累加的对象。一次请求只携带一个 service_tier，
+//     规则的 tier 维度天然互斥；同一 (scope, tier) 下若多条规则的 model
+//     whitelist 发生重叠，admin 可通过规则顺序明确意图。因此采用 first-match
+//     而非 BetaPolicy 那样的"block 覆盖 filter 覆盖 pass"语义。
 func (s *OpenAIGatewayService) evaluateOpenAIFastPolicy(ctx context.Context, account *Account, model, serviceTier string) (action, errMsg string) {
+	decision := s.evaluateOpenAIFastPolicyDecision(ctx, account, model, serviceTier)
+	return decision.Action, decision.ErrorMessage
+}
+
+func (s *OpenAIGatewayService) evaluateOpenAIFastPolicyDecision(ctx context.Context, account *Account, model, serviceTier string) openAIFastPolicyDecision {
 	if s == nil || s.settingService == nil {
-		return BetaPolicyActionPass, ""
+		return passOpenAIFastPolicyDecision()
 	}
 	tier := strings.ToLower(strings.TrimSpace(serviceTier))
-	if tier == "" {
-		return BetaPolicyActionPass, ""
-	}
 	settings := openAIFastPolicySettingsFromContext(ctx)
 	if settings == nil {
 		fetched, err := s.settingService.GetOpenAIFastPolicySettings(ctx)
 		if err != nil || fetched == nil {
-			return BetaPolicyActionPass, ""
+			return passOpenAIFastPolicyDecision()
 		}
 		settings = fetched
 	}
-	return evaluateOpenAIFastPolicyWithSettings(settings, account, model, tier)
+	return evaluateOpenAIFastPolicyDecisionWithSettings(settings, account, model, tier)
 }
 
 // evaluateOpenAIFastPolicyWithSettings is the pure-function core extracted so
@@ -6152,9 +6172,15 @@ func (s *OpenAIGatewayService) evaluateOpenAIFastPolicy(ctx context.Context, acc
 // the settingService on every frame. See WSSession entry and
 // openAIFastPolicySettingsFromContext for the caching glue.
 func evaluateOpenAIFastPolicyWithSettings(settings *OpenAIFastPolicySettings, account *Account, model, tier string) (action, errMsg string) {
+	decision := evaluateOpenAIFastPolicyDecisionWithSettings(settings, account, model, tier)
+	return decision.Action, decision.ErrorMessage
+}
+
+func evaluateOpenAIFastPolicyDecisionWithSettings(settings *OpenAIFastPolicySettings, account *Account, model, tier string) openAIFastPolicyDecision {
 	if settings == nil {
-		return BetaPolicyActionPass, ""
+		return passOpenAIFastPolicyDecision()
 	}
+	tier = strings.ToLower(strings.TrimSpace(tier))
 	isOAuth := account != nil && account.IsOAuth()
 	isBedrock := account != nil && account.IsBedrock()
 	for _, rule := range settings.Rules {
@@ -6162,19 +6188,53 @@ func evaluateOpenAIFastPolicyWithSettings(settings *OpenAIFastPolicySettings, ac
 			continue
 		}
 		ruleTier := strings.ToLower(strings.TrimSpace(rule.ServiceTier))
-		if ruleTier != "" && ruleTier != OpenAIFastTierAny && ruleTier != tier {
+		if !openAIFastPolicyTierMatches(ruleTier, tier) {
 			continue
 		}
-		eff := BetaPolicyRule{
-			Action:               rule.Action,
-			ErrorMessage:         rule.ErrorMessage,
-			ModelWhitelist:       rule.ModelWhitelist,
-			FallbackAction:       rule.FallbackAction,
-			FallbackErrorMessage: rule.FallbackErrorMessage,
-		}
-		return resolveRuleAction(eff, model)
+		return resolveOpenAIFastPolicyRuleDecision(rule, model)
 	}
-	return BetaPolicyActionPass, ""
+	return passOpenAIFastPolicyDecision()
+}
+
+func openAIFastPolicyTierMatches(ruleTier, tier string) bool {
+	switch ruleTier {
+	case "", OpenAIFastTierAny:
+		return tier != ""
+	case OpenAIFastTierAnyOrNone:
+		return true
+	case OpenAIFastTierNone:
+		return tier == ""
+	default:
+		return ruleTier == tier
+	}
+}
+
+func resolveOpenAIFastPolicyRuleDecision(rule OpenAIFastPolicyRule, model string) openAIFastPolicyDecision {
+	if len(rule.ModelWhitelist) == 0 || matchModelWhitelist(model, rule.ModelWhitelist) {
+		return normalizeOpenAIFastPolicyDecision(openAIFastPolicyDecision{
+			Action:            rule.Action,
+			ErrorMessage:      rule.ErrorMessage,
+			TargetServiceTier: rule.TargetServiceTier,
+		})
+	}
+	if rule.FallbackAction != "" {
+		return normalizeOpenAIFastPolicyDecision(openAIFastPolicyDecision{
+			Action:            rule.FallbackAction,
+			ErrorMessage:      rule.FallbackErrorMessage,
+			TargetServiceTier: rule.FallbackTargetServiceTier,
+		})
+	}
+	return passOpenAIFastPolicyDecision()
+}
+
+func normalizeOpenAIFastPolicyDecision(decision openAIFastPolicyDecision) openAIFastPolicyDecision {
+	if decision.Action == "" {
+		decision.Action = BetaPolicyActionPass
+	}
+	if decision.Action == BetaPolicyActionSet {
+		decision.TargetServiceTier = normalizedOpenAIServiceTierValue(decision.TargetServiceTier)
+	}
+	return decision
 }
 
 // openAIFastPolicyCtxKey 是 context 中预取的 OpenAIFastPolicySettings 缓存
@@ -6223,17 +6283,11 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToBody(ctx context.Context, 
 		return body, nil
 	}
 	rawTier := gjson.GetBytes(body, "service_tier").String()
-	if rawTier == "" {
-		return body, nil
-	}
 	normTier := normalizedOpenAIServiceTierValue(rawTier)
-	if normTier == "" {
-		return body, nil
-	}
-	action, errMsg := s.evaluateOpenAIFastPolicy(ctx, account, model, normTier)
-	switch action {
+	decision := s.evaluateOpenAIFastPolicyDecision(ctx, account, model, normTier)
+	switch decision.Action {
 	case BetaPolicyActionBlock:
-		msg := errMsg
+		msg := decision.ErrorMessage
 		if msg == "" {
 			msg = fmt.Sprintf("openai service_tier=%s is not allowed for model %s", normTier, model)
 		}
@@ -6244,8 +6298,24 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToBody(ctx context.Context, 
 			return body, fmt.Errorf("strip service_tier from body: %w", err)
 		}
 		return trimmed, nil
+	case BetaPolicyActionSet:
+		targetTier := normalizedOpenAIServiceTierValue(decision.TargetServiceTier)
+		if targetTier == "" {
+			return body, nil
+		}
+		if targetTier == rawTier {
+			return body, nil
+		}
+		updated, err := sjson.SetBytes(body, "service_tier", targetTier)
+		if err != nil {
+			return body, fmt.Errorf("set service_tier from policy: %w", err)
+		}
+		return updated, nil
 	default:
 		// pass：把别名（如 "fast"）写回为规范值（"priority"）。
+		if normTier == "" {
+			return body, nil
+		}
 		if normTier == rawTier {
 			return body, nil
 		}
@@ -6319,17 +6389,11 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToWSResponseCreate(
 		return frame, nil, nil
 	}
 	rawTier := gjson.GetBytes(frame, "service_tier").String()
-	if rawTier == "" {
-		return frame, nil, nil
-	}
 	normTier := normalizedOpenAIServiceTierValue(rawTier)
-	if normTier == "" {
-		return frame, nil, nil
-	}
-	action, errMsg := s.evaluateOpenAIFastPolicy(ctx, account, model, normTier)
-	switch action {
+	decision := s.evaluateOpenAIFastPolicyDecision(ctx, account, model, normTier)
+	switch decision.Action {
 	case BetaPolicyActionBlock:
-		msg := errMsg
+		msg := decision.ErrorMessage
 		if msg == "" {
 			msg = fmt.Sprintf("openai service_tier=%s is not allowed for model %s", normTier, model)
 		}
@@ -6340,9 +6404,48 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToWSResponseCreate(
 			return frame, nil, fmt.Errorf("strip service_tier from ws frame: %w", err)
 		}
 		return trimmed, nil, nil
+	case BetaPolicyActionSet:
+		targetTier := normalizedOpenAIServiceTierValue(decision.TargetServiceTier)
+		if targetTier == "" || targetTier == rawTier {
+			return frame, nil, nil
+		}
+		updated, err := sjson.SetBytes(frame, "service_tier", targetTier)
+		if err != nil {
+			return frame, nil, fmt.Errorf("set service_tier on ws frame: %w", err)
+		}
+		return updated, nil, nil
 	default:
-		return frame, nil, nil
+		if normTier == "" || normTier == rawTier {
+			return frame, nil, nil
+		}
+		updated, err := sjson.SetBytes(frame, "service_tier", normTier)
+		if err != nil {
+			return frame, nil, fmt.Errorf("normalize service_tier on ws frame: %w", err)
+		}
+		return updated, nil, nil
 	}
+}
+
+func extractOpenAIServiceTierFromMaybeMutatedBody(body []byte) *string {
+	if len(body) == 0 {
+		return nil
+	}
+	raw := gjson.GetBytes(body, "service_tier")
+	if !raw.Exists() {
+		return nil
+	}
+	return normalizeOpenAIServiceTier(raw.String())
+}
+
+func extractOpenAIServiceTierFromMaybeMutatedMap(reqBody map[string]any) *string {
+	if reqBody == nil {
+		return nil
+	}
+	raw, ok := reqBody["service_tier"].(string)
+	if !ok {
+		return nil
+	}
+	return normalizeOpenAIServiceTier(raw)
 }
 
 // newOpenAIFastPolicyWSEventID returns a Realtime-style event_id for a

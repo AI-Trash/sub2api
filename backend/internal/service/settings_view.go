@@ -390,6 +390,7 @@ const (
 	BetaPolicyActionPass   = "pass"   // 透传，不做任何处理
 	BetaPolicyActionFilter = "filter" // 过滤，从 beta header 中移除该 token
 	BetaPolicyActionBlock  = "block"  // 拦截，直接返回错误
+	BetaPolicyActionSet    = "set"    // OpenAI fast policy only: rewrite service_tier
 
 	BetaPolicyScopeAll     = "all"     // 所有账号类型
 	BetaPolicyScopeOAuth   = "oauth"   // 仅 OAuth 账号
@@ -493,20 +494,27 @@ func DefaultBetaPolicySettings() *BetaPolicySettings {
 // 本策略复用 BetaPolicyAction*/BetaPolicyScope* 常量语义，只是匹配键从
 // anthropic-beta header 换成 body 的 service_tier 字段。
 const (
-	OpenAIFastTierAny      = "all"      // 匹配任意已识别的 service_tier
-	OpenAIFastTierPriority = "priority" // 仅匹配 fast（priority）
-	OpenAIFastTierFlex     = "flex"     // 仅匹配 flex
+	OpenAIFastTierAny       = "all"      // 匹配任意已识别且已设置的 service_tier
+	OpenAIFastTierAnyOrNone = "any"      // 匹配任意 service_tier，包括未设置/无法识别
+	OpenAIFastTierNone      = "none"     // 仅匹配未设置或无法识别的 service_tier
+	OpenAIFastTierPriority  = "priority" // 仅匹配 fast（priority）
+	OpenAIFastTierFlex      = "flex"     // 仅匹配 flex
+	OpenAIFastTierAuto      = "auto"     // 仅匹配 auto
+	OpenAIFastTierDefault   = "default"  // 仅匹配 default
+	OpenAIFastTierScale     = "scale"    // 仅匹配 scale
 )
 
 // OpenAIFastPolicyRule 单条 OpenAI fast/flex 策略规则
 type OpenAIFastPolicyRule struct {
-	ServiceTier          string   `json:"service_tier"`                     // "priority" | "flex" | "auto" | "default" | "scale" | "all"
-	Action               string   `json:"action"`                           // "pass" | "filter" | "block"
-	Scope                string   `json:"scope"`                            // "all" | "oauth" | "apikey" | "bedrock"
-	ErrorMessage         string   `json:"error_message,omitempty"`          // 自定义错误消息 (action=block 时生效)
-	ModelWhitelist       []string `json:"model_whitelist,omitempty"`        // 模型匹配模式列表（为空=对所有模型生效）
-	FallbackAction       string   `json:"fallback_action,omitempty"`        // 未匹配白名单的模型的处理方式
-	FallbackErrorMessage string   `json:"fallback_error_message,omitempty"` // 未匹配白名单时的自定义错误消息 (fallback_action=block 时生效)
+	ServiceTier               string   `json:"service_tier"`                           // "priority" | "flex" | "auto" | "default" | "scale" | "all" | "any" | "none"
+	Action                    string   `json:"action"`                                 // "pass" | "filter" | "block" | "set"
+	TargetServiceTier         string   `json:"target_service_tier,omitempty"`          // action=set 时写入的 service_tier
+	Scope                     string   `json:"scope"`                                  // "all" | "oauth" | "apikey" | "bedrock"
+	ErrorMessage              string   `json:"error_message,omitempty"`                // 自定义错误消息 (action=block 时生效)
+	ModelWhitelist            []string `json:"model_whitelist,omitempty"`              // 模型匹配模式列表（为空=对所有模型生效）
+	FallbackAction            string   `json:"fallback_action,omitempty"`              // 未匹配白名单的模型的处理方式
+	FallbackTargetServiceTier string   `json:"fallback_target_service_tier,omitempty"` // fallback_action=set 时写入的 service_tier
+	FallbackErrorMessage      string   `json:"fallback_error_message,omitempty"`       // 未匹配白名单时的自定义错误消息 (fallback_action=block 时生效)
 }
 
 // OpenAIFastPolicySettings OpenAI fast 策略配置

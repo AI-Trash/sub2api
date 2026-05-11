@@ -287,4 +287,23 @@ func TestOpenAIFastPolicySettingsFromDTO_NormalizesServiceTier(t *testing.T) {
 		require.Equal(t, service.OpenAIFastTierFlex, out.Rules[1].ServiceTier)
 		require.Equal(t, service.OpenAIFastTierAny, out.Rules[2].ServiceTier)
 	})
+
+	t.Run("set action target tiers are lowercased", func(t *testing.T) {
+		in := &dto.OpenAIFastPolicySettings{
+			Rules: []dto.OpenAIFastPolicyRule{{
+				ServiceTier:               "ANY",
+				Action:                    "set",
+				TargetServiceTier:         "PRIORITY",
+				Scope:                     "all",
+				ModelWhitelist:            []string{"gpt-5.5"},
+				FallbackAction:            "set",
+				FallbackTargetServiceTier: "FLEX",
+			}},
+		}
+		out := openaiFastPolicySettingsFromDTO(in)
+		require.Len(t, out.Rules, 1)
+		require.Equal(t, service.OpenAIFastTierAnyOrNone, out.Rules[0].ServiceTier)
+		require.Equal(t, service.OpenAIFastTierPriority, out.Rules[0].TargetServiceTier)
+		require.Equal(t, service.OpenAIFastTierFlex, out.Rules[0].FallbackTargetServiceTier)
+	})
 }

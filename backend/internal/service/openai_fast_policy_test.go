@@ -129,6 +129,87 @@ func TestEvaluateOpenAIFastPolicy_ScopeFiltersOAuth(t *testing.T) {
 	require.Equal(t, BetaPolicyActionPass, action)
 }
 
+func TestApplyOpenAIFastPolicyToBody_SetForcesPriorityWhenTierMissing(t *testing.T) {
+	settings := &OpenAIFastPolicySettings{
+		Rules: []OpenAIFastPolicyRule{{
+			ServiceTier:       OpenAIFastTierAnyOrNone,
+			Action:            BetaPolicyActionSet,
+			TargetServiceTier: OpenAIFastTierPriority,
+			Scope:             BetaPolicyScopeAll,
+		}},
+	}
+	svc := newOpenAIGatewayServiceWithSettings(t, settings)
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+
+	body := []byte(`{"model":"gpt-5.5","input":[]}`)
+	updated, err := svc.applyOpenAIFastPolicyToBody(context.Background(), account, "gpt-5.5", body)
+	require.NoError(t, err)
+	require.Contains(t, string(updated), `"service_tier":"priority"`)
+}
+
+func TestApplyOpenAIFastPolicyToBody_SetRewritesFlexToPriority(t *testing.T) {
+	settings := &OpenAIFastPolicySettings{
+		Rules: []OpenAIFastPolicyRule{{
+			ServiceTier:       OpenAIFastTierAny,
+			Action:            BetaPolicyActionSet,
+			TargetServiceTier: OpenAIFastTierPriority,
+			Scope:             BetaPolicyScopeAll,
+		}},
+	}
+	svc := newOpenAIGatewayServiceWithSettings(t, settings)
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+
+	body := []byte(`{"model":"gpt-5.5","service_tier":"flex"}`)
+	updated, err := svc.applyOpenAIFastPolicyToBody(context.Background(), account, "gpt-5.5", body)
+	require.NoError(t, err)
+	require.Contains(t, string(updated), `"service_tier":"priority"`)
+	require.NotContains(t, string(updated), `"service_tier":"flex"`)
+}
+
+func TestApplyOpenAIFastPolicyToBody_SetCanTargetNoneOnly(t *testing.T) {
+	settings := &OpenAIFastPolicySettings{
+		Rules: []OpenAIFastPolicyRule{{
+			ServiceTier:       OpenAIFastTierNone,
+			Action:            BetaPolicyActionSet,
+			TargetServiceTier: OpenAIFastTierPriority,
+			Scope:             BetaPolicyScopeAll,
+		}},
+	}
+	svc := newOpenAIGatewayServiceWithSettings(t, settings)
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+
+	body := []byte(`{"model":"gpt-5.5"}`)
+	updated, err := svc.applyOpenAIFastPolicyToBody(context.Background(), account, "gpt-5.5", body)
+	require.NoError(t, err)
+	require.Contains(t, string(updated), `"service_tier":"priority"`)
+
+	body = []byte(`{"model":"gpt-5.5","service_tier":"flex"}`)
+	updated, err = svc.applyOpenAIFastPolicyToBody(context.Background(), account, "gpt-5.5", body)
+	require.NoError(t, err)
+	require.Contains(t, string(updated), `"service_tier":"flex"`)
+}
+
+func TestApplyOpenAIFastPolicyToBody_SetFallbackTarget(t *testing.T) {
+	settings := &OpenAIFastPolicySettings{
+		Rules: []OpenAIFastPolicyRule{{
+			ServiceTier:               OpenAIFastTierAnyOrNone,
+			Action:                    BetaPolicyActionPass,
+			TargetServiceTier:         OpenAIFastTierPriority,
+			Scope:                     BetaPolicyScopeAll,
+			ModelWhitelist:            []string{"gpt-5.5"},
+			FallbackAction:            BetaPolicyActionSet,
+			FallbackTargetServiceTier: OpenAIFastTierFlex,
+		}},
+	}
+	svc := newOpenAIGatewayServiceWithSettings(t, settings)
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+
+	body := []byte(`{"model":"gpt-4"}`)
+	updated, err := svc.applyOpenAIFastPolicyToBody(context.Background(), account, "gpt-4", body)
+	require.NoError(t, err)
+	require.Contains(t, string(updated), `"service_tier":"flex"`)
+}
+
 func TestApplyOpenAIFastPolicyToBody_FilterRemovesField(t *testing.T) {
 	svc := newOpenAIGatewayServiceWithSettings(t, DefaultOpenAIFastPolicySettings())
 	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
@@ -269,12 +350,24 @@ func TestSetOpenAIFastPolicySettings_Validation(t *testing.T) {
 	})
 	require.Error(t, err)
 
+	// Invalid set target rejected
+	err = svc.SetOpenAIFastPolicySettings(context.Background(), &OpenAIFastPolicySettings{
+		Rules: []OpenAIFastPolicyRule{{
+			ServiceTier:       OpenAIFastTierAnyOrNone,
+			Action:            BetaPolicyActionSet,
+			TargetServiceTier: "turbo",
+			Scope:             BetaPolicyScopeAll,
+		}},
+	})
+	require.Error(t, err)
+
 	// Valid settings persisted
 	err = svc.SetOpenAIFastPolicySettings(context.Background(), &OpenAIFastPolicySettings{
 		Rules: []OpenAIFastPolicyRule{{
-			ServiceTier: OpenAIFastTierPriority,
-			Action:      BetaPolicyActionFilter,
-			Scope:       BetaPolicyScopeAll,
+			ServiceTier:       OpenAIFastTierAnyOrNone,
+			Action:            BetaPolicyActionSet,
+			TargetServiceTier: OpenAIFastTierPriority,
+			Scope:             BetaPolicyScopeAll,
 		}},
 	})
 	require.NoError(t, err)
@@ -282,5 +375,7 @@ func TestSetOpenAIFastPolicySettings_Validation(t *testing.T) {
 	got, err := svc.GetOpenAIFastPolicySettings(context.Background())
 	require.NoError(t, err)
 	require.Len(t, got.Rules, 1)
-	require.Equal(t, OpenAIFastTierPriority, got.Rules[0].ServiceTier)
+	require.Equal(t, OpenAIFastTierAnyOrNone, got.Rules[0].ServiceTier)
+	require.Equal(t, BetaPolicyActionSet, got.Rules[0].Action)
+	require.Equal(t, OpenAIFastTierPriority, got.Rules[0].TargetServiceTier)
 }

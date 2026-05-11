@@ -68,6 +68,44 @@ func TestWSResponseCreate_FlexPassThrough(t *testing.T) {
 	require.Equal(t, "flex", gjson.GetBytes(updated, "service_tier").String(), "flex frames must reach upstream untouched under default policy")
 }
 
+func TestWSResponseCreate_SetForcesPriorityWhenTierMissing(t *testing.T) {
+	settings := &OpenAIFastPolicySettings{
+		Rules: []OpenAIFastPolicyRule{{
+			ServiceTier:       OpenAIFastTierAnyOrNone,
+			Action:            BetaPolicyActionSet,
+			TargetServiceTier: OpenAIFastTierPriority,
+			Scope:             BetaPolicyScopeAll,
+		}},
+	}
+	svc := newOpenAIGatewayServiceWithSettings(t, settings)
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+
+	frame := []byte(`{"type":"response.create","model":"gpt-5.5","input":[]}`)
+	updated, blocked, err := svc.applyOpenAIFastPolicyToWSResponseCreate(context.Background(), account, "gpt-5.5", frame)
+	require.NoError(t, err)
+	require.Nil(t, blocked)
+	require.Equal(t, "priority", gjson.GetBytes(updated, "service_tier").String())
+}
+
+func TestWSResponseCreate_SetRewritesFlexToPriority(t *testing.T) {
+	settings := &OpenAIFastPolicySettings{
+		Rules: []OpenAIFastPolicyRule{{
+			ServiceTier:       OpenAIFastTierAny,
+			Action:            BetaPolicyActionSet,
+			TargetServiceTier: OpenAIFastTierPriority,
+			Scope:             BetaPolicyScopeAll,
+		}},
+	}
+	svc := newOpenAIGatewayServiceWithSettings(t, settings)
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+
+	frame := []byte(`{"type":"response.create","model":"gpt-5.5","service_tier":"flex"}`)
+	updated, blocked, err := svc.applyOpenAIFastPolicyToWSResponseCreate(context.Background(), account, "gpt-5.5", frame)
+	require.NoError(t, err)
+	require.Nil(t, blocked)
+	require.Equal(t, "priority", gjson.GetBytes(updated, "service_tier").String())
+}
+
 func TestWSResponseCreate_BlockReturnsTypedError(t *testing.T) {
 	settings := &OpenAIFastPolicySettings{
 		Rules: []OpenAIFastPolicyRule{{
