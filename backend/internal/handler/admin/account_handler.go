@@ -588,6 +588,39 @@ func (h *AccountHandler) Create(c *gin.Context) {
 	response.Success(c, result.Data)
 }
 
+// Duplicate handles duplicating an account
+// POST /api/v1/admin/accounts/:id/duplicate
+func (h *AccountHandler) Duplicate(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+
+	var duplicatedAccount *service.Account
+	result, err := executeAdminIdempotent(c, "admin.accounts.duplicate", gin.H{"account_id": accountID}, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
+		account, execErr := h.adminService.DuplicateAccount(ctx, accountID)
+		if execErr != nil {
+			return nil, execErr
+		}
+		duplicatedAccount = account
+		return h.buildAccountResponseWithRuntime(ctx, account), nil
+	})
+	if err != nil {
+		if retryAfter := service.RetryAfterSecondsFromError(err); retryAfter > 0 {
+			c.Header("Retry-After", strconv.Itoa(retryAfter))
+		}
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	if result != nil && result.Replayed {
+		c.Header("X-Idempotency-Replayed", "true")
+	}
+	h.scheduleOpenAIResponsesProbe(duplicatedAccount)
+	response.Success(c, result.Data)
+}
+
 // Update handles updating an account
 // PUT /api/v1/admin/accounts/:id
 func (h *AccountHandler) Update(c *gin.Context) {

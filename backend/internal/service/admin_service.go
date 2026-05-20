@@ -71,6 +71,7 @@ type AdminService interface {
 	GetAccount(ctx context.Context, id int64) (*Account, error)
 	GetAccountsByIDs(ctx context.Context, ids []int64) ([]*Account, error)
 	CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error)
+	DuplicateAccount(ctx context.Context, id int64) (*Account, error)
 	UpdateAccount(ctx context.Context, id int64, input *UpdateAccountInput) (*Account, error)
 	DeleteAccount(ctx context.Context, id int64) error
 	RefreshAccountCredentials(ctx context.Context, id int64) (*Account, error)
@@ -2498,6 +2499,188 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	}
 
 	return account, nil
+}
+
+func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64) (*Account, error) {
+	source, err := s.accountRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	credentials := cloneAccountConfigMap(source.Credentials)
+	extra := cloneAccountConfigMap(source.Extra)
+	sanitizeDuplicatedAccountExtra(extra)
+
+	var expiresAt *int64
+	if source.ExpiresAt != nil {
+		value := source.ExpiresAt.Unix()
+		expiresAt = &value
+	}
+
+	autoPauseOnExpired := source.AutoPauseOnExpired
+	duplicated, err := s.CreateAccount(ctx, &CreateAccountInput{
+		Name:                 buildDuplicateAccountName(source.Name),
+		Notes:                cloneAccountStringPtr(source.Notes),
+		Platform:             source.Platform,
+		Type:                 source.Type,
+		Credentials:          credentials,
+		Extra:                extra,
+		ProxyID:              cloneAccountInt64Ptr(source.ProxyID),
+		Concurrency:          source.Concurrency,
+		Priority:             source.Priority,
+		RateMultiplier:       cloneAccountFloat64Ptr(source.RateMultiplier),
+		LoadFactor:           cloneAccountIntPtr(source.LoadFactor),
+		GroupIDs:             append([]int64(nil), source.GroupIDs...),
+		ExpiresAt:            expiresAt,
+		AutoPauseOnExpired:   &autoPauseOnExpired,
+		SkipDefaultGroupBind: true,
+		// The source's groups already contain this platform, so duplicating the
+		// same account shape should not introduce a new mixed-channel risk.
+		SkipMixedChannelCheck: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	account, err := s.accountRepo.GetByID(ctx, duplicated.ID)
+	if err != nil {
+		return nil, err
+	}
+	return account, nil
+}
+
+func buildDuplicateAccountName(name string) string {
+	const maxAccountNameRunes = 100
+	const suffix = " (duplicate)"
+
+	base := strings.TrimSpace(name)
+	if base == "" {
+		base = "account"
+	}
+
+	baseRunes := []rune(base)
+	suffixRunes := []rune(suffix)
+	if len(baseRunes)+len(suffixRunes) > maxAccountNameRunes {
+		keep := maxAccountNameRunes - len(suffixRunes)
+		if keep < 0 {
+			keep = 0
+		}
+		baseRunes = baseRunes[:keep]
+	}
+
+	return string(baseRunes) + suffix
+}
+
+func cloneAccountConfigMap(in map[string]any) map[string]any {
+	if in == nil {
+		return map[string]any{}
+	}
+
+	out := make(map[string]any, len(in))
+	for key, value := range in {
+		out[key] = cloneAccountConfigValue(value)
+	}
+	return out
+}
+
+func cloneAccountConfigValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneAccountConfigMap(typed)
+	case []any:
+		out := make([]any, len(typed))
+		for i, item := range typed {
+			out[i] = cloneAccountConfigValue(item)
+		}
+		return out
+	case []string:
+		return append([]string(nil), typed...)
+	case []int64:
+		return append([]int64(nil), typed...)
+	case []float64:
+		return append([]float64(nil), typed...)
+	default:
+		return value
+	}
+}
+
+var duplicatedAccountExtraRuntimeKeys = map[string]struct{}{
+	"antigravity_credits_overages": {},
+	"codex_usage_updated_at":       {},
+	"crs_account_id":               {},
+	"crs_kind":                     {},
+	"crs_synced_at":                {},
+	"import_source":                {},
+	"imported_at":                  {},
+	"model_rate_limits":            {},
+	"openai_compact_checked_at":    {},
+	"openai_compact_last_error":    {},
+	"openai_compact_last_status":   {},
+	"openai_compact_supported":     {},
+	"openai_responses_supported":   {},
+	"quota_daily_reset_at":         {},
+	"quota_daily_start":            {},
+	"quota_daily_used":             {},
+	"quota_used":                   {},
+	"quota_weekly_reset_at":        {},
+	"quota_weekly_start":           {},
+	"quota_weekly_used":            {},
+	"session_window_utilization":   {},
+}
+
+var duplicatedAccountExtraRuntimePrefixes = []string{
+	"codex_5h_",
+	"codex_7d_",
+	"codex_primary_",
+	"codex_secondary_",
+	"passive_usage_",
+}
+
+func sanitizeDuplicatedAccountExtra(extra map[string]any) {
+	for key := range extra {
+		if _, ok := duplicatedAccountExtraRuntimeKeys[key]; ok {
+			delete(extra, key)
+			continue
+		}
+		for _, prefix := range duplicatedAccountExtraRuntimePrefixes {
+			if strings.HasPrefix(key, prefix) {
+				delete(extra, key)
+				break
+			}
+		}
+	}
+}
+
+func cloneAccountStringPtr(in *string) *string {
+	if in == nil {
+		return nil
+	}
+	value := *in
+	return &value
+}
+
+func cloneAccountInt64Ptr(in *int64) *int64 {
+	if in == nil {
+		return nil
+	}
+	value := *in
+	return &value
+}
+
+func cloneAccountFloat64Ptr(in *float64) *float64 {
+	if in == nil {
+		return nil
+	}
+	value := *in
+	return &value
+}
+
+func cloneAccountIntPtr(in *int) *int {
+	if in == nil {
+		return nil
+	}
+	value := *in
+	return &value
 }
 
 func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *UpdateAccountInput) (*Account, error) {

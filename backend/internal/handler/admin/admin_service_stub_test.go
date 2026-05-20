@@ -337,6 +337,11 @@ func (s *stubAdminService) CreateAccount(ctx context.Context, input *service.Cre
 	return &account, nil
 }
 
+func (s *stubAdminService) DuplicateAccount(ctx context.Context, id int64) (*service.Account, error) {
+	account := service.Account{ID: 301, Name: "account (duplicate)", Status: service.StatusActive}
+	return &account, nil
+}
+
 func (s *stubAdminService) UpdateAccount(ctx context.Context, id int64, input *service.UpdateAccountInput) (*service.Account, error) {
 	if s.updateAccountErr != nil {
 		return nil, s.updateAccountErr

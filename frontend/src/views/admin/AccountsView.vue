@@ -350,7 +350,7 @@
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @duplicate="handleDuplicate" @schedule="handleSchedule" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <BulkEditAccountModal
@@ -488,6 +488,7 @@ const showSchedulePanel = ref(false)
 const scheduleAcc = ref<Account | null>(null)
 const scheduleModelOptions = ref<SelectOption[]>([])
 const togglingSchedulable = ref<number | null>(null)
+const duplicatingAccount = ref<number | null>(null)
 const menu = reactive<{show:boolean, acc:Account|null, pos:{top:number, left:number}|null}>({ show: false, acc: null, pos: null })
 const exportingData = ref(false)
 
@@ -1549,6 +1550,21 @@ const handleSchedule = async (a: Account) => {
 }
 const closeSchedulePanel = () => { showSchedulePanel.value = false; scheduleAcc.value = null; scheduleModelOptions.value = [] }
 const handleReAuth = (a: Account) => { reAuthAcc.value = a; showReAuth.value = true }
+const handleDuplicate = async (a: Account) => {
+  if (duplicatingAccount.value === a.id) return
+  duplicatingAccount.value = a.id
+  try {
+    const duplicated = await adminAPI.accounts.duplicate(a.id)
+    await reload()
+    enterAutoRefreshSilentWindow()
+    appStore.showSuccess(t('admin.accounts.duplicateSuccess', { name: duplicated.name }))
+  } catch (error: any) {
+    console.error('Failed to duplicate account:', error)
+    appStore.showError(error?.response?.data?.message || error?.message || t('admin.accounts.duplicateFailed'))
+  } finally {
+    duplicatingAccount.value = null
+  }
+}
 const handleRefresh = async (a: Account) => {
   try {
     const updated = await adminAPI.accounts.refreshCredentials(a.id)
