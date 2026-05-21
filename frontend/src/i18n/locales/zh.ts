@@ -122,19 +122,23 @@ export default {
     dateRangeToday: '今日',
     dateRange7d: '7 天',
     dateRange30d: '30 天',
+    dateRange90d: '90 天',
     dateRangeCustom: '自定义',
     apply: '应用',
     used: '已使用',
     detailInfo: '详细信息',
     tokenStats: 'Token 统计',
+    dailyDetail: '按日明细',
     modelStats: '模型用量统计',
     // Table headers
+    date: '日期',
     model: '模型',
     requests: '请求数',
     inputTokens: '输入 Tokens',
     outputTokens: '输出 Tokens',
     cacheCreationTokens: '缓存创建',
     cacheReadTokens: '缓存读取',
+    cacheWriteTokens: '缓存写入',
     totalTokens: '总 Tokens',
     cost: '费用',
     // Status
@@ -178,6 +182,7 @@ export default {
     querySuccess: '查询成功',
     queryFailed: '查询失败',
     queryFailedRetry: '查询失败，请稍后重试',
+    noDailyUsage: '暂无按日用量数据',
   },
 
   // Setup Wizard
@@ -2432,6 +2437,8 @@ export default {
         webSearchEmulationGlobalDisabled: '请先在系统设置 → 网关 → Web Search 模拟中启用全局开关',
         codexImageGenerationBridge: 'Codex 图片生成桥接',
         codexImageGenerationBridgeHint: '开启后，OpenAI 分组的 Codex /responses 文本请求可能会被自动注入 image_generation 工具。仅在路由账号支持图片生成时开启。',
+        bedrockCCCompat: 'Bedrock CC 兼容',
+        bedrockCCCompatHint: '⚠️ 开启后，该渠道下 Bedrock 账号的请求将进行 Claude Code 兼容处理（thinking 类型转换、tool_use ID 清理）',
         basicSettings: '基础设置',
         addPlatform: '添加平台',
         noPlatforms: '点击"添加平台"开始配置渠道',
@@ -4292,6 +4299,22 @@ export default {
       used: '已使用',
       searchCodes: '搜索兑换码或邮箱...',
       exportCsv: '导出 CSV',
+      batchUpdate: '批量修改',
+      batchUpdateTitle: '批量修改兑换码',
+      selectedCount: '已选择 {count} 个兑换码',
+      clearSelection: '清空选择',
+      selectCodesFirst: '请先选择兑换码',
+      noBatchFieldsSelected: '请至少勾选一个要修改的字段',
+      batchUpdateSuccess: '成功修改 {count} 个兑换码',
+      failedToBatchUpdate: '批量修改兑换码失败',
+      batchFields: {
+        status: '状态',
+        expiresAt: '过期时间',
+        notes: '备注',
+        group: '分组'
+      },
+      batchNotesPlaceholder: '输入新的备注，留空可清空备注',
+      clearGroup: '清空分组',
       deleteAllUnused: '删除全部未使用',
       deleteUsedOrExpired: '删除已使用/已过期',
       deleteAllCodes: '删除全部兑换码',
@@ -5494,6 +5517,13 @@ export default {
         secretKeyHint: '服务端验证密钥（请保密）',
         secretKeyConfiguredHint: '密钥已配置，留空以保留当前值。'
       },
+      apiKeyAcl: {
+        title: 'API Key IP 访问控制',
+        description: '控制 API Key 白名单和黑名单使用哪个客户端 IP 判断',
+        trustForwardedIp: '信任反代传递的客户端 IP',
+        trustForwardedIpHint:
+          '默认关闭。仅在源站只允许 Cloudflare 或 Nginx 反代访问时开启；开启后 API Key IP 白/黑名单会使用 CF-Connecting-IP、X-Real-IP 或 X-Forwarded-For，与使用记录中的请求 IP 保持一致。'
+      },
       linuxdo: {
         title: 'LinuxDo Connect 登录',
         description: '配置 LinuxDo Connect OAuth，用于 Sub2API 用户登录',
@@ -5655,6 +5685,9 @@ export default {
         antigravityUserAgentVersion: 'Antigravity UA 版本',
         antigravityUserAgentVersionPlaceholder: '1.23.2',
         antigravityUserAgentVersionHint: '留空时使用 ANTIGRAVITY_USER_AGENT_VERSION 或内置默认值 1.23.2；填写后后台设置优先。',
+        openaiCodexUserAgent: 'OpenAI Codex UA',
+        openaiCodexUserAgentPlaceholder: 'codex-tui/0.125.0 (Ubuntu 22.4.0; x86_64) xterm-256color (codex-tui; 0.125.0)',
+        openaiCodexUserAgentHint: '用于规避 OpenAI 上游 Cloudflare 对浏览器 UA 的访问质询。仅在检测到客户端 User-Agent 为浏览器（Mozilla/...）时生效，其他客户端原样透传。留空使用内置默认值。',
       },
       webSearchEmulation: {
         title: 'Web Search 模拟',
@@ -5964,6 +5997,12 @@ export default {
         addEmail: '添加邮箱',
         emailPlaceholder: '输入邮箱地址',
       },
+      subscriptionExpiryNotify: {
+        title: '订阅到期提醒',
+        description: '控制是否向用户发送订阅即将到期的邮件提醒。',
+        enabled: '启用订阅到期提醒',
+        enabledHint: '开启后，系统会在订阅到期前 7 天、3 天、1 天各发送一次提醒。'
+      },
       smtp: {
         title: '邮件服务设置',
         description: '配置用于发送验证码、重置密码和通知的邮件服务',
@@ -6008,6 +6047,36 @@ export default {
         sendTestEmail: '发送测试邮件',
         sending: '发送中...',
         enterRecipientHint: '请输入收件人邮箱地址'
+      },
+      emailTemplates: {
+        title: '邮件模板',
+        description: '按事件和语言自定义通知邮件主题与 HTML 内容。',
+        event: '事件',
+        locale: '语言',
+        localeEn: '英文',
+        localeZh: '中文',
+        subject: '主题',
+        subjectPlaceholder: '输入邮件主题',
+        html: 'HTML 模板',
+        htmlPlaceholder: '编辑邮件 HTML 模板',
+        placeholders: '可用占位符',
+        placeholdersHelp: '点击占位符可复制。后端发送邮件时会替换这些值。',
+        livePreview: '实时预览',
+        previewSecurityHint: '预览 HTML 由后端预览接口生成，并在禁用脚本的沙盒 iframe 中展示。',
+        preview: '预览 / 刷新',
+        previewing: '预览中...',
+        save: '保存模板',
+        saving: '保存中...',
+        restoreOfficial: '恢复官方模板',
+        restoring: '恢复中...',
+        restoreConfirm: '确定恢复此事件和语言的官方模板吗？当前自定义版本将被替换。',
+        restoreSuccess: '已恢复官方模板',
+        saveSuccess: '邮件模板已保存',
+        placeholderCopied: '占位符已复制',
+        validationRequired: '主题和 HTML 模板不能为空',
+        empty: '暂无可用的邮件模板事件或语言。',
+        noPreview: '刷新预览后查看渲染后的邮件主题。',
+        customized: '已自定义'
       },
       opsMonitoring: {
         title: '运维监控',
