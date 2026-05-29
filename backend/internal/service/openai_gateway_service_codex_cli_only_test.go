@@ -18,7 +18,7 @@ type stubCodexRestrictionDetector struct {
 	result CodexClientRestrictionDetectionResult
 }
 
-func (s *stubCodexRestrictionDetector) Detect(_ *gin.Context, _ *Account) CodexClientRestrictionDetectionResult {
+func (s *stubCodexRestrictionDetector) Detect(_ *gin.Context, _ *Account, _ []string) CodexClientRestrictionDetectionResult {
 	return s.result
 }
 
@@ -52,7 +52,7 @@ func TestOpenAIGatewayService_GetCodexClientRestrictionDetector(t *testing.T) {
 		c.Request.Header.Set("User-Agent", "curl/8.0")
 		account := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Extra: map[string]any{"codex_cli_only": true}}
 
-		result := got.Detect(c, account)
+		result := got.Detect(c, account, nil)
 		require.True(t, result.Enabled)
 		require.True(t, result.Matched)
 		require.Equal(t, CodexClientRestrictionReasonForceCodexCLI, result.Reason)
@@ -347,7 +347,7 @@ func TestOpenAIAccountEligibilityRejectsBlacklistedMappedModel(t *testing.T) {
 			},
 		}
 
-		require.False(t, isOpenAIAccountEligibleForRequest(account, "codex-latest", false))
+		require.False(t, isOpenAIAccountEligibleForRequest(context.Background(), account, "codex-latest", false, OpenAIEndpointCapabilityChatCompletions))
 	})
 
 	t.Run("oauth-normalized upstream model", func(t *testing.T) {
@@ -362,7 +362,7 @@ func TestOpenAIAccountEligibilityRejectsBlacklistedMappedModel(t *testing.T) {
 			},
 		}
 
-		require.False(t, isOpenAIAccountEligibleForRequest(account, "codex-latest", false))
+		require.False(t, isOpenAIAccountEligibleForRequest(context.Background(), account, "codex-latest", false, OpenAIEndpointCapabilityChatCompletions))
 	})
 }
 

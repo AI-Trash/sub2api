@@ -160,7 +160,7 @@ func (s *duplicateAccountRepoStub) SetRateLimited(ctx context.Context, id int64,
 	return nil
 }
 
-func (s *duplicateAccountRepoStub) SetModelRateLimit(ctx context.Context, id int64, scope string, resetAt time.Time) error {
+func (s *duplicateAccountRepoStub) SetModelRateLimit(ctx context.Context, id int64, scope string, resetAt time.Time, models ...string) error {
 	return nil
 }
 
