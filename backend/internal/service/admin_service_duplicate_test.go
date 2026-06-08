@@ -192,6 +192,10 @@ func (s *duplicateAccountRepoStub) UpdateSessionWindow(ctx context.Context, id i
 	return nil
 }
 
+func (s *duplicateAccountRepoStub) UpdateSessionWindowEnd(ctx context.Context, id int64, end time.Time) error {
+	return nil
+}
+
 func (s *duplicateAccountRepoStub) UpdateExtra(ctx context.Context, id int64, updates map[string]any) error {
 	return nil
 }
@@ -205,6 +209,10 @@ func (s *duplicateAccountRepoStub) IncrementQuotaUsed(ctx context.Context, id in
 }
 
 func (s *duplicateAccountRepoStub) ResetQuotaUsed(ctx context.Context, id int64) error {
+	return nil
+}
+
+func (s *duplicateAccountRepoStub) RevertProxyFallback(ctx context.Context, accountID int64) error {
 	return nil
 }
 
@@ -315,9 +323,9 @@ func TestAdminServiceDuplicateAccount_CreatesConfigCloneWithoutRuntimeState(t *t
 	require.Equal(t, "https://example.test/v1", extra["custom_base_url"])
 	require.Equal(t, true, extra["quota_notify_total_enabled"])
 	require.Contains(t, extra, "quota_daily_reset_at")
+	require.Contains(t, extra, "quota_daily_start")
+	require.Equal(t, 0.0, extra["quota_daily_used"])
 	require.NotContains(t, extra, "quota_used")
-	require.NotContains(t, extra, "quota_daily_used")
-	require.NotContains(t, extra, "quota_daily_start")
 	require.NotContains(t, extra, "quota_weekly_used")
 	require.NotContains(t, extra, "quota_weekly_start")
 	require.NotContains(t, extra, "model_rate_limits")
