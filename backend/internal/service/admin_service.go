@@ -96,6 +96,7 @@ type AdminService interface {
 	ForceAntigravityPrivacy(ctx context.Context, account *Account) string
 	SetAccountSchedulable(ctx context.Context, id int64, schedulable bool) (*Account, error)
 	BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error)
+	BulkDeleteAccounts(ctx context.Context, input *BulkDeleteAccountsInput) (*BulkDeleteAccountsResult, error)
 	CheckMixedChannelRisk(ctx context.Context, currentAccountID int64, currentAccountPlatform string, groupIDs []int64) error
 	// RevertAccountProxyFallback 将账号的 proxy_id 切回 proxy_fallback_origin_id，并清空 origin 字段。
 	// 若账号不存在返回 ErrAccountNotFound；若账号存在但不在 fallback 状态，返回 ErrAccountNotInFallback。
@@ -337,6 +338,12 @@ type BulkUpdateAccountsInput struct {
 	SkipMixedChannelCheck bool
 }
 
+// BulkDeleteAccountsInput describes the target accounts for bulk deletion.
+type BulkDeleteAccountsInput struct {
+	AccountIDs []int64
+	Filters    *BulkUpdateAccountFilters
+}
+
 type BulkUpdateAccountFilters struct {
 	Platform    string
 	Type        string
@@ -389,6 +396,22 @@ type BulkUpdateAccountsResult struct {
 	SuccessIDs []int64                   `json:"success_ids"`
 	FailedIDs  []int64                   `json:"failed_ids"`
 	Results    []BulkUpdateAccountResult `json:"results"`
+}
+
+// BulkDeleteAccountResult captures the result for a single account deletion.
+type BulkDeleteAccountResult struct {
+	AccountID int64  `json:"account_id"`
+	Success   bool   `json:"success"`
+	Error     string `json:"error,omitempty"`
+}
+
+// BulkDeleteAccountsResult is the aggregated response for bulk deletes.
+type BulkDeleteAccountsResult struct {
+	Success    int                       `json:"success"`
+	Failed     int                       `json:"failed"`
+	SuccessIDs []int64                   `json:"success_ids"`
+	FailedIDs  []int64                   `json:"failed_ids"`
+	Results    []BulkDeleteAccountResult `json:"results"`
 }
 
 type CreateProxyInput struct {
@@ -3209,6 +3232,47 @@ func (s *adminServiceImpl) DeleteAccount(ctx context.Context, id int64) error {
 		return err
 	}
 	return nil
+}
+
+// BulkDeleteAccounts deletes multiple accounts in one request.
+func (s *adminServiceImpl) BulkDeleteAccounts(ctx context.Context, input *BulkDeleteAccountsInput) (*BulkDeleteAccountsResult, error) {
+	if input == nil {
+		return nil, errors.New("bulk delete input is required")
+	}
+	if len(input.AccountIDs) == 0 && input.Filters != nil {
+		accountIDs, err := s.resolveBulkUpdateTargetIDs(ctx, input.Filters)
+		if err != nil {
+			return nil, err
+		}
+		input.AccountIDs = accountIDs
+	}
+
+	result := &BulkDeleteAccountsResult{
+		SuccessIDs: make([]int64, 0, len(input.AccountIDs)),
+		FailedIDs:  make([]int64, 0, len(input.AccountIDs)),
+		Results:    make([]BulkDeleteAccountResult, 0, len(input.AccountIDs)),
+	}
+	if len(input.AccountIDs) == 0 {
+		return result, nil
+	}
+
+	for _, accountID := range input.AccountIDs {
+		entry := BulkDeleteAccountResult{AccountID: accountID}
+		if err := s.accountRepo.Delete(ctx, accountID); err != nil {
+			entry.Success = false
+			entry.Error = err.Error()
+			result.Failed++
+			result.FailedIDs = append(result.FailedIDs, accountID)
+			result.Results = append(result.Results, entry)
+			continue
+		}
+		entry.Success = true
+		result.Success++
+		result.SuccessIDs = append(result.SuccessIDs, accountID)
+		result.Results = append(result.Results, entry)
+	}
+
+	return result, nil
 }
 
 func (s *adminServiceImpl) RefreshAccountCredentials(ctx context.Context, id int64) (*Account, error) {

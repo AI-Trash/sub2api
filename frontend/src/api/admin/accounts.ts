@@ -435,6 +435,33 @@ export async function bulkUpdate(
 }
 
 /**
+ * Bulk delete multiple accounts
+ * @param accountIdsOrPayload - Account IDs, or a filter-target payload
+ * @returns Bulk deletion result
+ */
+export async function bulkDelete(
+  accountIdsOrPayload: number[] | Record<string, unknown>
+): Promise<{
+  success: number
+  failed: number
+  success_ids?: number[]
+  failed_ids?: number[]
+  results: Array<{ account_id: number; success: boolean; error?: string }>
+}> {
+  const payload = Array.isArray(accountIdsOrPayload)
+    ? { account_ids: accountIdsOrPayload }
+    : accountIdsOrPayload
+  const { data } = await apiClient.post<{
+    success: number
+    failed: number
+    success_ids?: number[]
+    failed_ids?: number[]
+    results: Array<{ account_id: number; success: boolean; error?: string }>
+  }>('/admin/accounts/bulk-delete', payload)
+  return data
+}
+
+/**
  * Get account today statistics
  * @param id - Account ID
  * @returns Today's stats (requests, tokens, cost)
@@ -748,6 +775,7 @@ export const accountsAPI = {
   batchCreate,
   batchUpdateCredentials,
   bulkUpdate,
+  bulkDelete,
   previewFromCrs,
   syncFromCrs,
   exportData,

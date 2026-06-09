@@ -25,6 +25,8 @@ type accountRepoStubForBulkUpdate struct {
 	getByIDAccounts  map[int64]*Account
 	getByIDErrByID   map[int64]error
 	getByIDCalled    []int64
+	deleteErrByID    map[int64]error
+	deletedIDs       []int64
 	listByGroupData  map[int64][]Account
 	listByGroupErr   map[int64]error
 	listData         []Account
@@ -76,6 +78,14 @@ func (s *accountRepoStubForBulkUpdate) GetByID(_ context.Context, id int64) (*Ac
 		return account, nil
 	}
 	return nil, errors.New("account not found")
+}
+
+func (s *accountRepoStubForBulkUpdate) Delete(_ context.Context, id int64) error {
+	s.deletedIDs = append(s.deletedIDs, id)
+	if err, ok := s.deleteErrByID[id]; ok {
+		return err
+	}
+	return nil
 }
 
 func (s *accountRepoStubForBulkUpdate) ListByGroup(_ context.Context, groupID int64) ([]Account, error) {
@@ -242,6 +252,56 @@ func TestAdminServiceBulkUpdateAccounts_ResolvesIDsFromFilters(t *testing.T) {
 	require.Equal(t, int64(12), repo.lastListFilters.groupID)
 	require.Equal(t, PrivacyModeCFBlocked, repo.lastListFilters.privacyMode)
 	require.Equal(t, []int64{7, 11}, repo.bulkUpdateIDs)
+	require.Equal(t, 2, result.Success)
+	require.Equal(t, 0, result.Failed)
+	require.Equal(t, []int64{7, 11}, result.SuccessIDs)
+}
+
+func TestAdminServiceBulkDeleteAccounts_PartialFailureIDs(t *testing.T) {
+	repo := &accountRepoStubForBulkUpdate{
+		deleteErrByID: map[int64]error{
+			2: errors.New("delete failed"),
+		},
+	}
+	svc := &adminServiceImpl{accountRepo: repo}
+
+	result, err := svc.BulkDeleteAccounts(context.Background(), &BulkDeleteAccountsInput{
+		AccountIDs: []int64{1, 2, 3},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, []int64{1, 2, 3}, repo.deletedIDs)
+	require.Equal(t, 2, result.Success)
+	require.Equal(t, 1, result.Failed)
+	require.ElementsMatch(t, []int64{1, 3}, result.SuccessIDs)
+	require.ElementsMatch(t, []int64{2}, result.FailedIDs)
+	require.Len(t, result.Results, 3)
+}
+
+func TestAdminServiceBulkDeleteAccounts_ResolvesIDsFromFilters(t *testing.T) {
+	repo := &accountRepoStubForBulkUpdate{
+		listData: []Account{
+			{ID: 7},
+			{ID: 11},
+		},
+		listResult: &pagination.PaginationResult{Total: 2},
+	}
+	svc := &adminServiceImpl{accountRepo: repo}
+
+	result, err := svc.BulkDeleteAccounts(context.Background(), &BulkDeleteAccountsInput{
+		Filters: &BulkUpdateAccountFilters{
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Group:       "12",
+			PrivacyMode: PrivacyModeCFBlocked,
+			Search:      "bulk-target",
+		},
+	})
+
+	require.NoError(t, err)
+	require.True(t, repo.listCalled, "expected filter-target bulk delete to resolve matching IDs via account list filters")
+	require.Equal(t, []int64{7, 11}, repo.deletedIDs)
 	require.Equal(t, 2, result.Success)
 	require.Equal(t, 0, result.Failed)
 	require.Equal(t, []int64{7, 11}, result.SuccessIDs)

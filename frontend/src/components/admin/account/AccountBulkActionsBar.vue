@@ -32,6 +32,9 @@
         <button @click="$emit('toggle-schedulable', false)" class="btn btn-warning btn-sm">{{ t('admin.accounts.bulkActions.disableScheduling') }}</button>
         <button @click="$emit('edit-selected')" class="btn btn-primary btn-sm">{{ t('admin.accounts.bulkActions.edit') }}</button>
       </template>
+      <button v-else @click="$emit('delete-filtered')" class="btn btn-danger btn-sm">
+        {{ t('admin.accounts.bulkActions.delete') }}
+      </button>
       <button @click="$emit('edit-filtered')" class="btn btn-primary btn-sm">
         {{ t('admin.accounts.bulkEdit.submit') }}
       </button>
@@ -41,5 +44,5 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-defineProps(['selectedIds']); defineEmits(['delete', 'edit-selected', 'edit-filtered', 'clear', 'select-page', 'toggle-schedulable', 'reset-status', 'refresh-token']); const { t } = useI18n()
+defineProps(['selectedIds']); defineEmits(['delete', 'delete-filtered', 'edit-selected', 'edit-filtered', 'clear', 'select-page', 'toggle-schedulable', 'reset-status', 'refresh-token']); const { t } = useI18n()
 </script>
