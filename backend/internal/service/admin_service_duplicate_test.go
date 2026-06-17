@@ -216,6 +216,10 @@ func (s *duplicateAccountRepoStub) RevertProxyFallback(ctx context.Context, acco
 	return nil
 }
 
+func (s *duplicateAccountRepoStub) ListOAuthRefreshCandidates(context.Context) ([]Account, error) {
+	return nil, nil
+}
+
 var _ AccountRepository = (*duplicateAccountRepoStub)(nil)
 
 func TestAdminServiceDuplicateAccount_CreatesConfigCloneWithoutRuntimeState(t *testing.T) {

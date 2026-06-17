@@ -326,7 +326,7 @@ func TestOpenAIGatewayService_HandleFailoverSideEffects_BlacklistsUnsupportedCod
 		Body:       io.NopCloser(bytes.NewReader(body)),
 	}
 
-	svc.handleFailoverSideEffects(context.Background(), resp, repo.account, "fallback-model", "", body)
+	svc.handleFailoverSideEffects(context.Background(), resp, repo.account, body, "fallback-model")
 
 	require.Equal(t, 1, repo.updateCredentialsCallCnt)
 	require.Equal(t, []string{"gpt-5", "gpt-5.5"}, stringSliceFromRaw(repo.updatedCredentials["model_blacklist"]))
