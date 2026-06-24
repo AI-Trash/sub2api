@@ -19,6 +19,7 @@ import (
 
 const (
 	openAIAccountScheduleLayerPreviousResponse = "previous_response_id"
+	openAIAccountScheduleLayerPreferredProbe   = "preferred_probe"
 	openAIAccountScheduleLayerSessionSticky    = "session_hash"
 	openAIAccountScheduleLayerLoadBalance      = "load_balance"
 	openAIAdvancedSchedulerSettingKey          = "openai_advanced_scheduler_enabled"
@@ -303,6 +304,18 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		}
 	}
 
+	// Layer: Preferred Probe (Priority == 0)
+	// 每个请求先按 LRU 顺序尝试 Priority=0 账号；首个通过闸门且拿到槽位的胜出。
+	// 失败立刻回退到下一层（粘性会话 / 负载均衡），不排队、不写持久状态（除 sticky 重写）。
+	if selection, ok, err := s.tryPreferredProbe(ctx, req); err != nil {
+		return nil, decision, err
+	} else if ok {
+		decision.Layer = openAIAccountScheduleLayerPreferredProbe
+		decision.SelectedAccountID = selection.Account.ID
+		decision.SelectedAccountType = selection.Account.Type
+		return selection, decision, nil
+	}
+
 	selection, escapedSticky, err := s.selectBySessionHash(ctx, req)
 	if err != nil {
 		return nil, decision, err
@@ -458,6 +471,86 @@ func (s *defaultOpenAIAccountScheduler) shouldEscapeStickyAccount(accountID int6
 		return "error_rate", errorRate, ttft, true
 	}
 	return "", errorRate, ttft, false
+}
+
+// tryPreferredProbe 收集 Priority==0 的账号按 LRU 排序后逐个探针：
+// 闸门不过或抢不到槽位 → 立刻尝试下一个；都失败 → 返回 (nil, false, nil)
+// 让调用方继续走 selectBySessionHash / selectByLoadBalance。
+// 中签时重写 sticky 绑定，使后续请求天然命中 Preferred 账号。
+func (s *defaultOpenAIAccountScheduler) tryPreferredProbe(
+	ctx context.Context,
+	req OpenAIAccountScheduleRequest,
+) (*AccountSelectionResult, bool, error) {
+	if s == nil || s.service == nil || s.service.concurrencyService == nil {
+		return nil, false, nil
+	}
+	accounts, err := s.service.listSchedulableAccounts(ctx, req.GroupID)
+	if err != nil {
+		return nil, false, err
+	}
+	var preferredList []*Account
+	for i := range accounts {
+		acc := &accounts[i]
+		if acc.Priority != 0 {
+			continue
+		}
+		if _, excluded := req.ExcludedIDs[acc.ID]; excluded {
+			continue
+		}
+		if !acc.IsOpenAI() || !acc.IsSchedulable() {
+			continue
+		}
+		if s.service.isOpenAIAccountRuntimeBlocked(acc) {
+			continue
+		}
+		if !s.isAccountRequestCompatible(ctx, acc, req) {
+			continue
+		}
+		if !s.isAccountTransportCompatible(acc, req.RequiredTransport) {
+			continue
+		}
+		preferredList = append(preferredList, acc)
+	}
+	sortOpenAIAccountsByLRU(preferredList)
+	for _, preferred := range preferredList {
+		fresh := s.service.resolveFreshSchedulableOpenAIAccount(ctx, preferred, req.RequestedModel, req.RequireCompact, req.RequiredCapability)
+		if fresh == nil {
+			continue
+		}
+		fresh = s.service.recheckSelectedOpenAIAccountFromDB(ctx, fresh, req.RequestedModel, req.RequireCompact, req.RequiredCapability)
+		if fresh == nil || !s.isAccountTransportCompatible(fresh, req.RequiredTransport) || !s.isAccountRequestCompatible(ctx, fresh, req) {
+			continue
+		}
+		result, acquireErr := s.service.tryAcquireAccountSlot(ctx, fresh.ID, fresh.Concurrency)
+		if acquireErr != nil || result == nil || !result.Acquired {
+			continue
+		}
+		if req.SessionHash != "" {
+			_ = s.service.BindStickySession(ctx, req.GroupID, req.SessionHash, fresh.ID)
+		}
+		return &AccountSelectionResult{
+			Account:     fresh,
+			Acquired:    true,
+			ReleaseFunc: result.ReleaseFunc,
+		}, true, nil
+	}
+	return nil, false, nil
+}
+
+func sortOpenAIAccountsByLRU(accounts []*Account) {
+	sort.SliceStable(accounts, func(i, j int) bool {
+		a, b := accounts[i], accounts[j]
+		switch {
+		case a.LastUsedAt == nil && b.LastUsedAt != nil:
+			return true
+		case a.LastUsedAt != nil && b.LastUsedAt == nil:
+			return false
+		case a.LastUsedAt == nil && b.LastUsedAt == nil:
+			return a.ID < b.ID
+		default:
+			return a.LastUsedAt.Before(*b.LastUsedAt)
+		}
+	})
 }
 
 type openAIAccountCandidateScore struct {

@@ -2364,6 +2364,39 @@ func TestDefaultOpenAIAccountScheduler_IsAccountTransportCompatible_Branches(t *
 	require.True(t, scheduler.isAccountTransportCompatible(account, OpenAIUpstreamTransportResponsesWebsocketV2))
 }
 
+// --- sortOpenAIAccountsByLRU ---
+
+func TestSortOpenAIAccountsByLRU_NilFirst(t *testing.T) {
+	now := time.Now()
+	earlier := now.Add(-2 * time.Hour)
+	accounts := []*Account{
+		{ID: 1, LastUsedAt: &now},
+		{ID: 2, LastUsedAt: nil},
+		{ID: 3, LastUsedAt: &earlier},
+	}
+	sortOpenAIAccountsByLRU(accounts)
+	require.Equal(t, int64(2), accounts[0].ID)
+	require.Equal(t, int64(3), accounts[1].ID)
+	require.Equal(t, int64(1), accounts[2].ID)
+}
+
+func TestSortOpenAIAccountsByLRU_AllNil(t *testing.T) {
+	accounts := []*Account{
+		{ID: 5, LastUsedAt: nil},
+		{ID: 2, LastUsedAt: nil},
+		{ID: 9, LastUsedAt: nil},
+	}
+	sortOpenAIAccountsByLRU(accounts)
+	require.Equal(t, int64(2), accounts[0].ID)
+	require.Equal(t, int64(5), accounts[1].ID)
+	require.Equal(t, int64(9), accounts[2].ID)
+}
+
+func TestSortOpenAIAccountsByLRU_Empty(t *testing.T) {
+	sortOpenAIAccountsByLRU(nil)
+	sortOpenAIAccountsByLRU([]*Account{})
+}
+
 func int64PtrForTest(v int64) *int64 {
 	return &v
 }

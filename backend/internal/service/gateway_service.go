@@ -2023,6 +2023,55 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		}
 	}
 
+	// ============ Layer 1.4: Preferred Probe (Priority == 0) ============
+	// 业务诉求：用户持有「全局限速」付费上游，希望每个请求都先尝试一次，
+	// 失败立刻回退到正常调度。一旦中签，重写 sticky 绑定以提高命中率。
+	// 排序：LRU（最久未用优先）→ 均衡消耗多账号主备场景。
+	// 失败语义：闸门不过或抢不到槽位 → 不排队，立刻尝试下一个 Preferred；
+	//           所有 Preferred 都失败 → 落入 Layer 1.5 粘性会话。
+	if !hasForcePlatform && s.concurrencyService != nil {
+		var preferredList []*Account
+		for i := range accounts {
+			acc := &accounts[i]
+			if acc.Priority != 0 {
+				continue
+			}
+			if isExcluded(acc.ID) {
+				continue
+			}
+			if !s.isAccountSchedulableForSelection(acc) ||
+				!s.isAccountAllowedForPlatform(acc, platform, useMixed) ||
+				(requestedModel != "" && !s.isModelSupportedByAccountWithContext(ctx, acc, requestedModel)) {
+				continue
+			}
+			preferredList = append(preferredList, acc)
+		}
+		sortPreferredAccountsByLRU(preferredList)
+		for _, preferred := range preferredList {
+			if !s.isAccountSchedulableForModelSelection(ctx, preferred, requestedModel) ||
+				!s.isAccountSchedulableForQuota(preferred) ||
+				!s.isAccountSchedulableForWindowCost(ctx, preferred, false) ||
+				!s.isAccountSchedulableForRPM(ctx, preferred, false) {
+				continue
+			}
+			result, err := s.tryAcquireAccountSlot(ctx, preferred.ID, preferred.Concurrency)
+			if err != nil || result == nil || !result.Acquired {
+				continue
+			}
+			if !s.checkAndRegisterSession(ctx, preferred, sessionHash) {
+				result.ReleaseFunc()
+				continue
+			}
+			if sessionHash != "" && s.cache != nil {
+				_ = s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), sessionHash, preferred.ID, stickySessionTTL)
+			}
+			if s.debugModelRoutingEnabled() {
+				logger.LegacyPrintf("service.gateway", "[PreferredProbe] hit group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), preferred.ID)
+			}
+			return s.newSelectionResult(ctx, preferred, true, result.ReleaseFunc, nil)
+		}
+	}
+
 	// ============ Layer 1.5: 粘性会话（仅在无模型路由配置时生效） ============
 	if len(routingAccountIDs) == 0 && sessionHash != "" && stickyAccountID > 0 && !isExcluded(stickyAccountID) {
 		accountID := stickyAccountID
@@ -2985,6 +3034,24 @@ func filterByMinLoadRate(accounts []accountWithLoad) []accountWithLoad {
 		}
 	}
 	return result
+}
+
+// sortPreferredAccountsByLRU 对 Preferred Probe 候选按 LRU 排序：
+// 最久未用（LastUsedAt 最早或 nil）的账号优先被探针，便于在多账号主备场景下均衡消耗。
+func sortPreferredAccountsByLRU(accounts []*Account) {
+	sort.SliceStable(accounts, func(i, j int) bool {
+		a, b := accounts[i], accounts[j]
+		switch {
+		case a.LastUsedAt == nil && b.LastUsedAt != nil:
+			return true
+		case a.LastUsedAt != nil && b.LastUsedAt == nil:
+			return false
+		case a.LastUsedAt == nil && b.LastUsedAt == nil:
+			return a.ID < b.ID
+		default:
+			return a.LastUsedAt.Before(*b.LastUsedAt)
+		}
+	})
 }
 
 // filterBySoonestReset 过滤出「会话窗口最早重置」的账号集合（use-it-or-lose-it）。
