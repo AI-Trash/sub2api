@@ -3814,7 +3814,7 @@ export default {
       loadFactor: '负载因子',
       loadFactorHint: '提高负载因子可以提高对账号的调度频率',
       priority: '优先级',
-      priorityHint: '优先级越小的账号优先使用',
+      priorityHint: '数值越小优先级越高，优先调度；设为 0 表示「Preferred Probe」：每个请求先尝试一次，失败回退到正常调度（适合全局限速付费账号）',
       billingRateMultiplier: '账号计费倍率',
       billingRateMultiplierHint: '0 表示不计费，仅影响账号计费',
       expiresAt: '过期时间',

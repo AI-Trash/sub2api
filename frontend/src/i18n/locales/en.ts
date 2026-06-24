@@ -3666,7 +3666,7 @@ export default {
       loadFactor: 'Load Factor',
       loadFactorHint: 'Higher load factor increases scheduling frequency',
       priority: 'Priority',
-      priorityHint: 'Lower value accounts are used first',
+      priorityHint: 'Lower values are scheduled first. Set to 0 to mark as "Preferred Probe": every request tries this account first and falls back to normal scheduling on failure (recommended for paid accounts with global rate limits)',
       billingRateMultiplier: 'Billing Rate Multiplier',
       billingRateMultiplierHint: '0 = free, affects account billing only',
       expiresAt: 'Expires At',
