@@ -18,7 +18,7 @@ type stubCodexRestrictionDetector struct {
 	result CodexClientRestrictionDetectionResult
 }
 
-func (s *stubCodexRestrictionDetector) Detect(_ *gin.Context, _ *Account, _ []string) CodexClientRestrictionDetectionResult {
+func (s *stubCodexRestrictionDetector) Detect(_ *gin.Context, _ *Account, _ CodexRestrictionPolicy, _ []byte) CodexClientRestrictionDetectionResult {
 	return s.result
 }
 
@@ -52,7 +52,7 @@ func TestOpenAIGatewayService_GetCodexClientRestrictionDetector(t *testing.T) {
 		c.Request.Header.Set("User-Agent", "curl/8.0")
 		account := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Extra: map[string]any{"codex_cli_only": true}}
 
-		result := got.Detect(c, account, nil)
+		result := got.Detect(c, account, CodexRestrictionPolicy{}, nil)
 		require.True(t, result.Enabled)
 		require.True(t, result.Matched)
 		require.Equal(t, CodexClientRestrictionReasonForceCodexCLI, result.Reason)
@@ -231,6 +231,18 @@ func TestIsOpenAITransientProcessingError(t *testing.T) {
 	require.True(t, isOpenAITransientProcessingError(
 		http.StatusBadRequest,
 		"",
+		[]byte(`{"error":{"code":"server_is_overloaded","message":"Please retry later.","type":"invalid_request_error"}}`),
+	))
+
+	require.True(t, isOpenAITransientProcessingError(
+		http.StatusServiceUnavailable,
+		"",
+		[]byte(`{"error":{"code":"slow_down","message":"Please retry later."}}`),
+	))
+
+	require.True(t, isOpenAITransientProcessingError(
+		http.StatusBadRequest,
+		"",
 		[]byte(`{"error":{"message":"An error occurred while processing your request. You can retry your request, or contact us through our help center at help.openai.com if the error persists. Please include the request ID req_123 in your message."}}`),
 	))
 
@@ -347,7 +359,7 @@ func TestOpenAIAccountEligibilityRejectsBlacklistedMappedModel(t *testing.T) {
 			},
 		}
 
-		require.False(t, isOpenAIAccountEligibleForRequest(context.Background(), account, "codex-latest", false, OpenAIEndpointCapabilityChatCompletions))
+		require.False(t, isOpenAICompatibleAccountEligibleForRequest(context.Background(), account, PlatformOpenAI, "codex-latest", false, OpenAIEndpointCapabilityChatCompletions))
 	})
 
 	t.Run("oauth-normalized upstream model", func(t *testing.T) {
@@ -362,7 +374,7 @@ func TestOpenAIAccountEligibilityRejectsBlacklistedMappedModel(t *testing.T) {
 			},
 		}
 
-		require.False(t, isOpenAIAccountEligibleForRequest(context.Background(), account, "codex-latest", false, OpenAIEndpointCapabilityChatCompletions))
+		require.False(t, isOpenAICompatibleAccountEligibleForRequest(context.Background(), account, PlatformOpenAI, "codex-latest", false, OpenAIEndpointCapabilityChatCompletions))
 	})
 }
 
