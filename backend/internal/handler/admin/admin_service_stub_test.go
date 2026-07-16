@@ -34,12 +34,20 @@ type stubAdminService struct {
 	updateAccountErr                    error
 	lastUpdateAccountInput              *service.UpdateAccountInput
 	bulkUpdateAccountErr                error
-	lastBulkUpdateAccountInput          *service.BulkUpdateAccountsInput
-	getAccountResult                    *service.Account
-	updateAccountCalls                  int
-	updateAccountExtraCalls             int
-	checkMixedErr                       error
-	lastMixedCheck                      struct {
+
+	lastBulkUpdateAccountInput *service.BulkUpdateAccountsInput
+
+	bulkDeleteAccountErr error
+
+	getAccountResult        *service.Account
+	updateAccountCalls      int
+	updateAccountExtraCalls int
+	checkMixedErr           error
+	lastBulkDelete          struct {
+		accountIDs []int64
+		filters    *service.BulkUpdateAccountFilters
+	}
+	lastMixedCheck struct {
 		accountID int64
 		platform  string
 		groupIDs  []int64
@@ -544,6 +552,19 @@ func (s *stubAdminService) BulkUpdateAccounts(ctx context.Context, input *servic
 		return nil, s.bulkUpdateAccountErr
 	}
 	return &service.BulkUpdateAccountsResult{Success: len(input.AccountIDs), Failed: 0, SuccessIDs: input.AccountIDs}, nil
+}
+
+func (s *stubAdminService) BulkDeleteAccounts(ctx context.Context, input *service.BulkDeleteAccountsInput) (*service.BulkDeleteAccountsResult, error) {
+	s.lastBulkDelete.accountIDs = append([]int64(nil), input.AccountIDs...)
+	s.lastBulkDelete.filters = input.Filters
+	if s.bulkDeleteAccountErr != nil {
+		return nil, s.bulkDeleteAccountErr
+	}
+	success := len(input.AccountIDs)
+	if success == 0 && input.Filters != nil {
+		success = len(s.accounts)
+	}
+	return &service.BulkDeleteAccountsResult{Success: success, Failed: 0, SuccessIDs: input.AccountIDs}, nil
 }
 
 func (s *stubAdminService) CheckMixedChannelRisk(ctx context.Context, currentAccountID int64, currentAccountPlatform string, groupIDs []int64) error {

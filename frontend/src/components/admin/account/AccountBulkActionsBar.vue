@@ -71,6 +71,7 @@ defineProps<{
 
 defineEmits([
   'delete',
+  'delete-filtered',
   'edit-selected',
   'edit-filtered',
   'clear',
