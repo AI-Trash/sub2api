@@ -155,6 +155,8 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyAuthSourceDefaultDingTalkGrantOnSignup:    "false",
 		SettingKeyAuthSourceDefaultDingTalkGrantOnFirstBind: "false",
 		SettingKeyForceEmailOnThirdPartySignup:              "false",
+		SettingKeyEmailProvider:                             "smtp",
+		SettingKeyEmailAPIURL:                                "",
 		SettingKeySMTPPort:                                  "587",
 		SettingKeySMTPUseTLS:                                "false",
 		// Model fallback defaults
@@ -266,6 +268,9 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		LoginAgreementMode:               normalizeLoginAgreementMode(settings[SettingKeyLoginAgreementMode]),
 		LoginAgreementUpdatedAt:          loginAgreementUpdatedAt,
 		LoginAgreementDocuments:          loginAgreementDocuments,
+		EmailProvider:                    NormalizeEmailProvider(settings[SettingKeyEmailProvider]),
+		EmailAPIURL:                      normalizeEmailAPIURL(settings[SettingKeyEmailProvider], settings[SettingKeyEmailAPIURL]),
+		EmailAPIKeyConfigured:            strings.TrimSpace(settings[SettingKeyEmailAPIKey]) != "",
 		SMTPHost:                         settings[SettingKeySMTPHost],
 		SMTPUsername:                     settings[SettingKeySMTPUsername],
 		SMTPFrom:                         settings[SettingKeySMTPFrom],

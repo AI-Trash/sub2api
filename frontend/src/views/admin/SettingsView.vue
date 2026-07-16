@@ -7044,7 +7044,24 @@
             <div class="space-y-6 p-6">
               <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
                 <div>
-                  <label
+                  
+              <div class="form-group">
+                <label class="label">{{ t("admin.settings.smtp.provider") }}</label>
+                <select v-model="form.email_provider" class="input">
+                  <option value="smtp">{{ t("admin.settings.smtp.providerSmtp") }}</option>
+                  <option value="brevo">{{ t("admin.settings.smtp.providerBrevo") }}</option>
+                  <option value="zeptomail">{{ t("admin.settings.smtp.providerZeptoMail") }}</option>
+                </select>
+              </div>
+              <div v-if="form.email_provider !== 'smtp'" class="form-group">
+                <label class="label">{{ t("admin.settings.smtp.apiUrl") }}</label>
+                <input v-model="form.email_api_url" class="input" :placeholder="emailApiUrlPlaceholder(form.email_provider)" />
+              </div>
+              <div v-if="form.email_provider !== 'smtp'" class="form-group">
+                <label class="label">{{ t("admin.settings.smtp.apiKey") }}</label>
+                <input v-model="form.email_api_key" type="password" class="input" />
+              </div>
+<label
                     class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
                   >
                     {{ t("admin.settings.smtp.host") }}
@@ -7638,6 +7655,30 @@ const loadFailed = ref(false);
 const saving = ref(false);
 const testingSmtp = ref(false);
 const sendingTestEmail = ref(false);
+
+const defaultBrevoEmailApiUrl = "https://api.brevo.com/v3/smtp/email";
+const defaultZeptoMailEmailApiUrl = "https://api.zeptomail.com/v1.1/email";
+
+type EmailProvider = "smtp" | "brevo" | "zeptomail";
+
+function defaultEmailApiUrl(provider: EmailProvider | string): string {
+  if (provider === "brevo") return defaultBrevoEmailApiUrl;
+  if (provider === "zeptomail") return defaultZeptoMailEmailApiUrl;
+  return "";
+}
+
+function emailApiUrlPlaceholder(provider: EmailProvider | string): string {
+  if (provider === "brevo") {
+    return t("admin.settings.smtp.apiUrlPlaceholderBrevo");
+  }
+  return t("admin.settings.smtp.apiUrlPlaceholderZeptoMail");
+}
+
+function effectiveEmailApiUrl(): string {
+  const url = (form.email_api_url || "").trim();
+  return url || defaultEmailApiUrl(form.email_provider);
+}
+
 const smtpPasswordManuallyEdited = ref(false);
 const testEmailAddress = ref("");
 const registrationEmailSuffixWhitelistTags = ref<string[]>([]);
@@ -8259,6 +8300,9 @@ const form = reactive<SettingsForm>({
     description: string;
   }>,
   frontend_url: "",
+  email_provider: "smtp" as EmailProvider,
+  email_api_url: "",
+  email_api_key: "",
   smtp_host: "",
   smtp_port: 587,
   smtp_username: "",
@@ -9595,6 +9639,9 @@ async function saveSettings() {
       custom_menu_items: form.custom_menu_items,
       custom_endpoints: form.custom_endpoints,
       frontend_url: form.frontend_url,
+      email_provider: form.email_provider,
+      email_api_url: effectiveEmailApiUrl(),
+      email_api_key: form.email_api_key,
       smtp_host: form.smtp_host,
       smtp_port: form.smtp_port,
       smtp_username: form.smtp_username,
@@ -9945,6 +9992,9 @@ async function testSmtpConnection() {
       ? form.smtp_password
       : "";
     const result = await adminAPI.settings.testSmtpConnection({
+      email_provider: form.email_provider,
+      email_api_url: effectiveEmailApiUrl(),
+      email_api_key: form.email_api_key,
       smtp_host: form.smtp_host,
       smtp_port: form.smtp_port,
       smtp_username: form.smtp_username,
@@ -9977,6 +10027,9 @@ async function sendTestEmail() {
       : "";
     const result = await adminAPI.settings.sendTestEmail({
       email: testEmailAddress.value,
+      email_provider: form.email_provider,
+      email_api_url: effectiveEmailApiUrl(),
+      email_api_key: form.email_api_key,
       smtp_host: form.smtp_host,
       smtp_port: form.smtp_port,
       smtp_username: form.smtp_username,

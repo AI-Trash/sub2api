@@ -138,6 +138,11 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyLoginAgreementDocuments] = loginAgreementDocumentsJSON
 
 	// 邮件服务设置（只有非空才更新密码）
+	updates[SettingKeyEmailProvider] = NormalizeEmailProvider(settings.EmailProvider)
+	updates[SettingKeyEmailAPIURL] = normalizeEmailAPIURL(settings.EmailProvider, settings.EmailAPIURL)
+	if settings.EmailAPIKey != "" {
+		updates[SettingKeyEmailAPIKey] = settings.EmailAPIKey
+	}
 	updates[SettingKeySMTPHost] = settings.SMTPHost
 	updates[SettingKeySMTPPort] = strconv.Itoa(settings.SMTPPort)
 	updates[SettingKeySMTPUsername] = settings.SMTPUsername

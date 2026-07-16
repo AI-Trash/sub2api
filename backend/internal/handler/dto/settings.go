@@ -43,6 +43,10 @@ type SystemSettings struct {
 	LoginAgreementUpdatedAt          string                   `json:"login_agreement_updated_at"`
 	LoginAgreementDocuments          []LoginAgreementDocument `json:"login_agreement_documents"`
 
+	EmailProvider         string `json:"email_provider"`
+	EmailAPIURL           string `json:"email_api_url"`
+	EmailAPIKeyConfigured bool   `json:"email_api_key_configured"`
+
 	SMTPHost               string `json:"smtp_host"`
 	SMTPPort               int    `json:"smtp_port"`
 	SMTPUsername           string `json:"smtp_username"`

@@ -35,6 +35,9 @@ type UpdateSettingsRequest struct {
 	LoginAgreementDocuments          []dto.LoginAgreementDocument `json:"login_agreement_documents"`
 
 	// 邮件服务设置
+	EmailProvider string `json:"email_provider"`
+	EmailAPIURL  string `json:"email_api_url"`
+	EmailAPIKey  string `json:"email_api_key"`
 	SMTPHost     string `json:"smtp_host"`
 	SMTPPort     int    `json:"smtp_port"`
 	SMTPUsername string `json:"smtp_username"`
@@ -1187,6 +1190,9 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		LoginAgreementMode:               loginAgreementMode,
 		LoginAgreementUpdatedAt:          loginAgreementUpdatedAt,
 		LoginAgreementDocuments:          loginAgreementDocuments,
+		EmailProvider:                    req.EmailProvider,
+		EmailAPIURL:                      req.EmailAPIURL,
+		EmailAPIKey:                      req.EmailAPIKey,
 		SMTPHost:                         req.SMTPHost,
 		SMTPPort:                         req.SMTPPort,
 		SMTPUsername:                     req.SMTPUsername,
@@ -1715,6 +1721,9 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		LoginAgreementMode:                                     updatedSettings.LoginAgreementMode,
 		LoginAgreementUpdatedAt:                                updatedSettings.LoginAgreementUpdatedAt,
 		LoginAgreementDocuments:                                loginAgreementDocumentsToDTO(updatedSettings.LoginAgreementDocuments),
+		EmailProvider:                                         updatedSettings.EmailProvider,
+		EmailAPIURL:                                           updatedSettings.EmailAPIURL,
+		EmailAPIKeyConfigured:                                 updatedSettings.EmailAPIKeyConfigured,
 		SMTPHost:                                               updatedSettings.SMTPHost,
 		SMTPPort:                                               updatedSettings.SMTPPort,
 		SMTPUsername:                                           updatedSettings.SMTPUsername,

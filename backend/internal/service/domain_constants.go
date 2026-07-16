@@ -150,13 +150,16 @@ const (
 	SettingKeyLoginAgreementDocuments          = "login_agreement_documents"           // 条款文档列表（JSON，Markdown 内容）
 
 	// 邮件服务设置
-	SettingKeySMTPHost     = "smtp_host"      // SMTP服务器地址
-	SettingKeySMTPPort     = "smtp_port"      // SMTP端口
-	SettingKeySMTPUsername = "smtp_username"  // SMTP用户名
-	SettingKeySMTPPassword = "smtp_password"  // SMTP密码（加密存储）
-	SettingKeySMTPFrom     = "smtp_from"      // 发件人地址
-	SettingKeySMTPFromName = "smtp_from_name" // 发件人名称
-	SettingKeySMTPUseTLS   = "smtp_use_tls"   // 是否使用TLS
+	SettingKeyEmailProvider = "email_provider" // 邮件服务接入方式: smtp/brevo/zeptomail
+	SettingKeyEmailAPIKey   = "email_api_key"  // HTTP 邮件服务 API Key（加密存储）
+	SettingKeyEmailAPIURL   = "email_api_url"  // HTTP 邮件服务 API URL（ZeptoMail 区域相关）
+	SettingKeySMTPHost      = "smtp_host"      // SMTP服务器地址
+	SettingKeySMTPPort      = "smtp_port"      // SMTP端口
+	SettingKeySMTPUsername  = "smtp_username"  // SMTP用户名
+	SettingKeySMTPPassword  = "smtp_password"  // SMTP密码（加密存储）
+	SettingKeySMTPFrom      = "smtp_from"      // 发件人地址
+	SettingKeySMTPFromName  = "smtp_from_name" // 发件人名称
+	SettingKeySMTPUseTLS    = "smtp_use_tls"   // 是否使用TLS
 
 	// Cloudflare Turnstile 设置
 	SettingKeyTurnstileEnabled   = "turnstile_enabled"    // 是否启用 Turnstile 验证

@@ -27,6 +27,11 @@ type SystemSettings struct {
 	LoginAgreementUpdatedAt          string
 	LoginAgreementDocuments          []LoginAgreementDocument
 
+	EmailProvider         string
+	EmailAPIKey           string
+	EmailAPIURL           string
+	EmailAPIKeyConfigured bool
+
 	SMTPHost               string
 	SMTPPort               int
 	SMTPUsername           string
