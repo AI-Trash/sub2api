@@ -591,6 +591,279 @@
             </div>
           </div>
 
+          <!-- OpenAI Images JSON Keepalive Settings -->
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.openAIImagesKeepalive.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.openAIImagesKeepalive.description") }}
+              </p>
+            </div>
+            <div class="space-y-5 p-6">
+              <div
+                v-if="openAIImagesKeepaliveLoading"
+                class="flex items-center gap-2 text-gray-500"
+              >
+                <div
+                  class="h-4 w-4 animate-spin rounded-full border-b-2 border-primary-600"
+                ></div>
+                {{ t("common.loading") }}
+              </div>
+
+              <template v-else>
+                <div class="flex items-center justify-between gap-4">
+                  <div>
+                    <label class="font-medium text-gray-900 dark:text-white">
+                      {{ t("admin.settings.openAIImagesKeepalive.enabled") }}
+                    </label>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                      {{
+                        t("admin.settings.openAIImagesKeepalive.enabledHint")
+                      }}
+                    </p>
+                  </div>
+                  <Toggle v-model="openAIImagesKeepaliveForm.enabled" />
+                </div>
+
+                <div
+                  v-if="openAIImagesKeepaliveForm.enabled"
+                  class="space-y-4 border-t border-gray-100 pt-4 dark:border-dark-700"
+                >
+                  <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_8rem]">
+                    <div>
+                      <label
+                        class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                      >
+                        {{
+                          t(
+                            "admin.settings.openAIImagesKeepalive.intervalSeconds",
+                          )
+                        }}
+                      </label>
+                      <p class="text-xs text-gray-500 dark:text-gray-400">
+                        {{
+                          t(
+                            "admin.settings.openAIImagesKeepalive.intervalSecondsHint",
+                          )
+                        }}
+                      </p>
+                    </div>
+                    <input
+                      v-model.number="
+                        openAIImagesKeepaliveForm.keepalive_interval_seconds
+                      "
+                      type="number"
+                      min="5"
+                      max="30"
+                      class="input w-full"
+                    />
+                  </div>
+
+                  <div class="space-y-3">
+                    <div>
+                      <label
+                        class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                      >
+                        {{
+                          t(
+                            "admin.settings.openAIImagesKeepalive.userAgentKeywords",
+                          )
+                        }}
+                      </label>
+                      <p class="text-xs text-gray-500 dark:text-gray-400">
+                        {{
+                          t(
+                            "admin.settings.openAIImagesKeepalive.userAgentKeywordsHint",
+                          )
+                        }}
+                      </p>
+                    </div>
+                    <div
+                      v-for="(
+                        _, index
+                      ) in openAIImagesKeepaliveForm.user_agent_keywords"
+                      :key="`openai-images-ua-${index}`"
+                      class="flex items-center gap-2"
+                    >
+                      <input
+                        v-model="
+                          openAIImagesKeepaliveForm.user_agent_keywords[index]
+                        "
+                        type="text"
+                        class="input input-sm flex-1"
+                        :placeholder="
+                          t(
+                            'admin.settings.openAIImagesKeepalive.userAgentKeywordPlaceholder',
+                          )
+                        "
+                      />
+                      <button
+                        type="button"
+                        @click="
+                          openAIImagesKeepaliveForm.user_agent_keywords.splice(
+                            index,
+                            1,
+                          )
+                        "
+                        class="btn btn-ghost btn-xs text-red-500 hover:text-red-700"
+                      >
+                        <svg
+                          class="h-4 w-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M6 18L18 6M6 6l12 12"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      @click="
+                        openAIImagesKeepaliveForm.user_agent_keywords.push('')
+                      "
+                      class="btn btn-ghost btn-xs text-primary-600 dark:text-primary-400"
+                    >
+                      +
+                      {{
+                        t(
+                          "admin.settings.openAIImagesKeepalive.addUserAgentKeyword",
+                        )
+                      }}
+                    </button>
+                  </div>
+
+                  <div class="space-y-3">
+                    <div>
+                      <label
+                        class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                      >
+                        {{
+                          t(
+                            "admin.settings.openAIImagesKeepalive.headerMatches",
+                          )
+                        }}
+                      </label>
+                      <p class="text-xs text-gray-500 dark:text-gray-400">
+                        {{
+                          t(
+                            "admin.settings.openAIImagesKeepalive.headerMatchesHint",
+                          )
+                        }}
+                      </p>
+                    </div>
+                    <div
+                      v-for="(
+                        _, index
+                      ) in openAIImagesKeepaliveForm.header_matches"
+                      :key="`openai-images-header-${index}`"
+                      class="flex items-center gap-2"
+                    >
+                      <input
+                        v-model="
+                          openAIImagesKeepaliveForm.header_matches[index]
+                        "
+                        type="text"
+                        class="input input-sm flex-1 font-mono"
+                        :placeholder="
+                          t(
+                            'admin.settings.openAIImagesKeepalive.headerMatchPlaceholder',
+                          )
+                        "
+                      />
+                      <button
+                        type="button"
+                        @click="
+                          openAIImagesKeepaliveForm.header_matches.splice(
+                            index,
+                            1,
+                          )
+                        "
+                        class="btn btn-ghost btn-xs text-red-500 hover:text-red-700"
+                      >
+                        <svg
+                          class="h-4 w-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M6 18L18 6M6 6l12 12"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      @click="openAIImagesKeepaliveForm.header_matches.push('')"
+                      class="btn btn-ghost btn-xs text-primary-600 dark:text-primary-400"
+                    >
+                      +
+                      {{
+                        t("admin.settings.openAIImagesKeepalive.addHeaderMatch")
+                      }}
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300"
+                >
+                  {{ t("admin.settings.openAIImagesKeepalive.note") }}
+                </div>
+
+                <div
+                  class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
+                >
+                  <button
+                    type="button"
+                    @click="saveOpenAIImagesKeepaliveSettings"
+                    :disabled="openAIImagesKeepaliveSaving"
+                    class="btn btn-primary btn-sm"
+                  >
+                    <svg
+                      v-if="openAIImagesKeepaliveSaving"
+                      class="mr-1 h-4 w-4 animate-spin"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        class="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        stroke-width="4"
+                      ></circle>
+                      <path
+                        class="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
+                    </svg>
+                    {{
+                      openAIImagesKeepaliveSaving
+                        ? t("common.saving")
+                        : t("common.save")
+                    }}
+                  </button>
+                </div>
+              </template>
+            </div>
+          </div>
+
           <!-- Request Rectifier Settings -->
           <div class="card">
             <div
@@ -1141,8 +1414,13 @@
                       @update:modelValue="
                         rule.service_tier = $event as
                           | 'all'
+                          | 'any'
+                          | 'none'
                           | 'priority'
                           | 'flex'
+                          | 'auto'
+                          | 'default'
+                          | 'scale'
                       "
                       :options="openaiFastPolicyTierOptions"
                     />
@@ -1162,6 +1440,7 @@
                           | 'pass'
                           | 'filter'
                           | 'block'
+                          | 'set'
                           | 'force_priority'
                       "
                       :options="openaiFastPolicyActionOptions"
@@ -1187,6 +1466,30 @@
                       :options="openaiFastPolicyScopeOptions"
                     />
                   </div>
+                </div>
+
+                <!-- Target Service Tier (only when action=set) -->
+                <div v-if="rule.action === 'set'" class="mt-3">
+                  <label
+                    class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                  >
+                    {{ t("admin.settings.openaiFastPolicy.targetServiceTier") }}
+                  </label>
+                  <Select
+                    :modelValue="rule.target_service_tier || 'priority'"
+                    @update:modelValue="
+                      rule.target_service_tier = $event as
+                        | 'priority'
+                        | 'flex'
+                        | 'auto'
+                        | 'default'
+                        | 'scale'
+                    "
+                    :options="openaiFastPolicyTargetTierOptions"
+                  />
+                  <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                    {{ t("admin.settings.openaiFastPolicy.targetServiceTierHint") }}
+                  </p>
                 </div>
 
                 <!-- User Scope -->
@@ -1317,6 +1620,7 @@
                         | 'pass'
                         | 'filter'
                         | 'block'
+                        | 'set'
                         | 'force_priority'
                     "
                     :options="openaiFastPolicyActionOptions"
@@ -1336,6 +1640,24 @@
                           'admin.settings.openaiFastPolicy.fallbackErrorMessagePlaceholder',
                         )
                       "
+                    />
+                  </div>
+                  <div v-if="rule.fallback_action === 'set'" class="mt-2">
+                    <Select
+                      :modelValue="
+                        rule.fallback_target_service_tier ||
+                        rule.target_service_tier ||
+                        'priority'
+                      "
+                      @update:modelValue="
+                        rule.fallback_target_service_tier = $event as
+                          | 'priority'
+                          | 'flex'
+                          | 'auto'
+                          | 'default'
+                          | 'scale'
+                      "
+                      :options="openaiFastPolicyTargetTierOptions"
                     />
                   </div>
                 </div>
@@ -6995,7 +7317,7 @@
             </div>
           </div>
 
-          <!-- SMTP Settings - Only show when email verification is enabled -->
+          <!-- Email Service Settings - Only show when email verification is enabled -->
           <div v-if="form.email_verify_enabled" class="card">
             <div
               class="flex items-center justify-between border-b border-gray-100 px-6 py-4 dark:border-dark-700"
@@ -7042,7 +7364,29 @@
               </button>
             </div>
             <div class="space-y-6 p-6">
-              <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+              <div>
+                <label
+                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  {{ t("admin.settings.smtp.provider") }}
+                </label>
+                <select v-model="form.email_provider" class="input">
+                  <option value="smtp">
+                    {{ t("admin.settings.smtp.providerSmtp") }}
+                  </option>
+                  <option value="brevo">
+                    {{ t("admin.settings.smtp.providerBrevo") }}
+                  </option>
+                  <option value="zeptomail">
+                    {{ t("admin.settings.smtp.providerZeptoMail") }}
+                  </option>
+                </select>
+              </div>
+
+              <div
+                v-if="form.email_provider === 'smtp'"
+                class="grid grid-cols-1 gap-6 md:grid-cols-2"
+              >
                 <div>
                   <label
                     class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
@@ -7113,6 +7457,60 @@
                     }}
                   </p>
                 </div>
+              </div>
+
+              <div v-else class="grid grid-cols-1 gap-6 md:grid-cols-2">
+                <div class="md:col-span-2">
+                  <label
+                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.smtp.apiUrl") }}
+                  </label>
+                  <input
+                    v-model="form.email_api_url"
+                    type="url"
+                    class="input"
+                    :placeholder="emailApiUrlPlaceholder(form.email_provider)"
+                  />
+                  <p
+                    v-if="form.email_provider === 'zeptomail'"
+                    class="mt-1.5 text-xs text-gray-500 dark:text-gray-400"
+                  >
+                    {{ t("admin.settings.smtp.zeptoMailUrlHint") }}
+                  </p>
+                </div>
+                <div>
+                  <label
+                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.smtp.apiKey") }}
+                  </label>
+                  <input
+                    v-model="form.email_api_key"
+                    type="password"
+                    class="input"
+                    autocomplete="new-password"
+                    autocapitalize="off"
+                    spellcheck="false"
+                    @keydown="emailApiKeyManuallyEdited = true"
+                    @paste="emailApiKeyManuallyEdited = true"
+                    :placeholder="
+                      form.email_api_key_configured
+                        ? t('admin.settings.smtp.apiKeyConfiguredPlaceholder')
+                        : t('admin.settings.smtp.apiKeyPlaceholder')
+                    "
+                  />
+                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{
+                      form.email_api_key_configured
+                        ? t("admin.settings.smtp.apiKeyConfiguredHint")
+                        : t("admin.settings.smtp.apiKeyHint")
+                    }}
+                  </p>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
                 <div>
                   <label
                     class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
@@ -7143,6 +7541,7 @@
 
               <!-- Use TLS Toggle -->
               <div
+                v-if="form.email_provider === 'smtp'"
                 class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700"
               >
                 <div>
@@ -7639,6 +8038,7 @@ const saving = ref(false);
 const testingSmtp = ref(false);
 const sendingTestEmail = ref(false);
 const smtpPasswordManuallyEdited = ref(false);
+const emailApiKeyManuallyEdited = ref(false);
 const testEmailAddress = ref("");
 const registrationEmailSuffixWhitelistTags = ref<string[]>([]);
 const registrationEmailSuffixWhitelistDraft = ref("");
@@ -7679,6 +8079,16 @@ const streamTimeoutForm = reactive({
   threshold_window_minutes: 10,
 });
 
+// OpenAI 图片非流式 JSON keepalive 状态
+const openAIImagesKeepaliveLoading = ref(true);
+const openAIImagesKeepaliveSaving = ref(false);
+const openAIImagesKeepaliveForm = reactive({
+  enabled: true,
+  keepalive_interval_seconds: 10,
+  user_agent_keywords: [] as string[],
+  header_matches: [] as string[],
+});
+
 // Rectifier 状态
 const rectifierLoading = ref(true);
 const rectifierSaving = ref(false);
@@ -7716,6 +8126,28 @@ const openaiFastPolicyLoaded = ref(false);
 const tablePageSizeMin = 5;
 const tablePageSizeMax = 1000;
 const tablePageSizeDefault = 20;
+const defaultBrevoEmailApiUrl = "https://api.brevo.com/v3/smtp/email";
+const defaultZeptoMailEmailApiUrl = "https://api.zeptomail.com/v1.1/email";
+
+type EmailProvider = "smtp" | "brevo" | "zeptomail";
+
+function defaultEmailApiUrl(provider: EmailProvider | string): string {
+  if (provider === "brevo") return defaultBrevoEmailApiUrl;
+  if (provider === "zeptomail") return defaultZeptoMailEmailApiUrl;
+  return "";
+}
+
+function emailApiUrlPlaceholder(provider: EmailProvider | string): string {
+  if (provider === "brevo") {
+    return t("admin.settings.smtp.apiUrlPlaceholderBrevo");
+  }
+  return t("admin.settings.smtp.apiUrlPlaceholderZeptoMail");
+}
+
+function effectiveEmailApiUrl(): string {
+  const url = form.email_api_url.trim();
+  return url || defaultEmailApiUrl(form.email_provider);
+}
 
 function defaultLoginAgreementDocuments(): LoginAgreementDocument[] {
   return [
@@ -8149,6 +8581,8 @@ type SettingsForm = Omit<
   | "wechat_connect_mobile_enabled"
 > & {
   smtp_password: string;
+  email_provider: EmailProvider;
+  email_api_key: string;
   turnstile_secret_key: string;
   linuxdo_connect_client_secret: string;
   dingtalk_connect_client_secret: string;
@@ -8259,6 +8693,10 @@ const form = reactive<SettingsForm>({
     description: string;
   }>,
   frontend_url: "",
+  email_provider: "smtp",
+  email_api_key: "",
+  email_api_key_configured: false,
+  email_api_url: "",
   smtp_host: "",
   smtp_port: 587,
   smtp_username: "",
@@ -9241,6 +9679,8 @@ async function loadSettings() {
     registrationEmailSuffixWhitelistDraft.value = "";
     form.smtp_password = "";
     smtpPasswordManuallyEdited.value = false;
+    form.email_api_key = "";
+    emailApiKeyManuallyEdited.value = false;
     form.turnstile_secret_key = "";
     form.linuxdo_connect_client_secret = "";
     form.dingtalk_connect_client_secret = "";
@@ -9313,6 +9753,11 @@ async function loadSettings() {
       openaiFastPolicyForm.rules =
         settings.openai_fast_policy_settings.rules.map((rule) => ({
           ...rule,
+          target_service_tier: rule.target_service_tier || "priority",
+          fallback_target_service_tier:
+            rule.fallback_target_service_tier ||
+            rule.target_service_tier ||
+            "priority",
           user_ids: rule.user_ids ? [...rule.user_ids] : [],
           model_whitelist: rule.model_whitelist
             ? [...rule.model_whitelist]
@@ -9595,6 +10040,9 @@ async function saveSettings() {
       custom_menu_items: form.custom_menu_items,
       custom_endpoints: form.custom_endpoints,
       frontend_url: form.frontend_url,
+      email_provider: form.email_provider,
+      email_api_key: form.email_api_key || undefined,
+      email_api_url: effectiveEmailApiUrl(),
       smtp_host: form.smtp_host,
       smtp_port: form.smtp_port,
       smtp_username: form.smtp_username,
@@ -9833,6 +10281,10 @@ async function saveSettings() {
           return {
             service_tier: rule.service_tier,
             action: rule.action,
+            target_service_tier:
+              rule.action === "set"
+                ? rule.target_service_tier || "priority"
+                : undefined,
             scope: rule.scope,
             user_ids:
               rule.user_ids && rule.user_ids.length > 0
@@ -9844,6 +10296,12 @@ async function saveSettings() {
             fallback_action: hasWhitelist
               ? rule.fallback_action || "pass"
               : undefined,
+            fallback_target_service_tier:
+              hasWhitelist && rule.fallback_action === "set"
+                ? rule.fallback_target_service_tier ||
+                  rule.target_service_tier ||
+                  "priority"
+                : undefined,
             fallback_error_message:
               hasWhitelist && rule.fallback_action === "block"
                 ? rule.fallback_error_message
@@ -9877,6 +10335,8 @@ async function saveSettings() {
     registrationEmailSuffixWhitelistDraft.value = "";
     form.smtp_password = "";
     smtpPasswordManuallyEdited.value = false;
+    form.email_api_key = "";
+    emailApiKeyManuallyEdited.value = false;
     form.turnstile_secret_key = "";
     form.linuxdo_connect_client_secret = "";
     form.dingtalk_connect_client_secret = "";
@@ -9914,6 +10374,11 @@ async function saveSettings() {
       openaiFastPolicyForm.rules =
         updated.openai_fast_policy_settings.rules.map((rule) => ({
           ...rule,
+          target_service_tier: rule.target_service_tier || "priority",
+          fallback_target_service_tier:
+            rule.fallback_target_service_tier ||
+            rule.target_service_tier ||
+            "priority",
           user_ids: rule.user_ids ? [...rule.user_ids] : [],
           model_whitelist: rule.model_whitelist
             ? [...rule.model_whitelist]
@@ -9944,20 +10409,28 @@ async function testSmtpConnection() {
     const smtpPasswordForTest = smtpPasswordManuallyEdited.value
       ? form.smtp_password
       : "";
+    const emailApiKeyForTest = emailApiKeyManuallyEdited.value
+      ? form.email_api_key
+      : "";
     const result = await adminAPI.settings.testSmtpConnection({
+      email_provider: form.email_provider,
+      email_api_key: emailApiKeyForTest,
+      email_api_url: effectiveEmailApiUrl(),
       smtp_host: form.smtp_host,
       smtp_port: form.smtp_port,
       smtp_username: form.smtp_username,
       smtp_password: smtpPasswordForTest,
+      smtp_from_email: form.smtp_from_email,
+      smtp_from_name: form.smtp_from_name,
       smtp_use_tls: form.smtp_use_tls,
     });
     // API returns { message: "..." } on success, errors are thrown as exceptions
     appStore.showSuccess(
-      result.message || t("admin.settings.smtpConnectionSuccess"),
+      result.message || t("admin.settings.emailConnectionSuccess"),
     );
   } catch (error: unknown) {
     appStore.showError(
-      extractApiErrorMessage(error, t("admin.settings.failedToTestSmtp")),
+      extractApiErrorMessage(error, t("admin.settings.failedToTestEmail")),
     );
   } finally {
     testingSmtp.value = false;
@@ -9975,8 +10448,14 @@ async function sendTestEmail() {
     const smtpPasswordForSend = smtpPasswordManuallyEdited.value
       ? form.smtp_password
       : "";
+    const emailApiKeyForSend = emailApiKeyManuallyEdited.value
+      ? form.email_api_key
+      : "";
     const result = await adminAPI.settings.sendTestEmail({
       email: testEmailAddress.value,
+      email_provider: form.email_provider,
+      email_api_key: emailApiKeyForSend,
+      email_api_url: effectiveEmailApiUrl(),
       smtp_host: form.smtp_host,
       smtp_port: form.smtp_port,
       smtp_username: form.smtp_username,
@@ -10163,6 +10642,70 @@ async function saveStreamTimeoutSettings() {
   }
 }
 
+// OpenAI 图片非流式 JSON keepalive 方法
+function sanitizeOpenAIImagesKeepaliveList(values: string[]) {
+  return values.map((value) => value.trim()).filter(Boolean);
+}
+
+function normalizeOpenAIImagesKeepaliveForm() {
+  openAIImagesKeepaliveForm.keepalive_interval_seconds =
+    Number(openAIImagesKeepaliveForm.keepalive_interval_seconds) || 10;
+  if (!Array.isArray(openAIImagesKeepaliveForm.user_agent_keywords)) {
+    openAIImagesKeepaliveForm.user_agent_keywords = [];
+  }
+  if (!Array.isArray(openAIImagesKeepaliveForm.header_matches)) {
+    openAIImagesKeepaliveForm.header_matches = [];
+  }
+}
+
+async function loadOpenAIImagesKeepaliveSettings() {
+  openAIImagesKeepaliveLoading.value = true;
+  try {
+    const settings =
+      await adminAPI.settings.getOpenAIImagesJSONKeepaliveSettings();
+    Object.assign(openAIImagesKeepaliveForm, settings);
+    normalizeOpenAIImagesKeepaliveForm();
+  } catch (_error: unknown) {
+    // Silent fail - settings will use defaults
+  } finally {
+    openAIImagesKeepaliveLoading.value = false;
+  }
+}
+
+async function saveOpenAIImagesKeepaliveSettings() {
+  openAIImagesKeepaliveSaving.value = true;
+  try {
+    const interval = Number(
+      openAIImagesKeepaliveForm.keepalive_interval_seconds,
+    );
+    const updated =
+      await adminAPI.settings.updateOpenAIImagesJSONKeepaliveSettings({
+        enabled: openAIImagesKeepaliveForm.enabled,
+        keepalive_interval_seconds: Number.isFinite(interval)
+          ? Math.trunc(interval)
+          : 10,
+        user_agent_keywords: sanitizeOpenAIImagesKeepaliveList(
+          openAIImagesKeepaliveForm.user_agent_keywords,
+        ),
+        header_matches: sanitizeOpenAIImagesKeepaliveList(
+          openAIImagesKeepaliveForm.header_matches,
+        ),
+      });
+    Object.assign(openAIImagesKeepaliveForm, updated);
+    normalizeOpenAIImagesKeepaliveForm();
+    appStore.showSuccess(t("admin.settings.openAIImagesKeepalive.saved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.settings.openAIImagesKeepalive.saveFailed"),
+      ),
+    );
+  } finally {
+    openAIImagesKeepaliveSaving.value = false;
+  }
+}
+
 // Rectifier 方法
 async function loadRectifierSettings() {
   rectifierLoading.value = true;
@@ -10298,11 +10841,16 @@ async function loadBetaPolicySettings() {
 
 const openaiFastPolicyTierOptions = computed(() => [
   { value: "all", label: t("admin.settings.openaiFastPolicy.tierAll") },
+  { value: "any", label: t("admin.settings.openaiFastPolicy.tierAny") },
+  { value: "none", label: t("admin.settings.openaiFastPolicy.tierNone") },
   {
     value: "priority",
     label: t("admin.settings.openaiFastPolicy.tierPriority"),
   },
   { value: "flex", label: t("admin.settings.openaiFastPolicy.tierFlex") },
+  { value: "auto", label: t("admin.settings.openaiFastPolicy.tierAuto") },
+  { value: "default", label: t("admin.settings.openaiFastPolicy.tierDefault") },
+  { value: "scale", label: t("admin.settings.openaiFastPolicy.tierScale") },
 ]);
 
 const openaiFastPolicyActionOptions = computed(() => [
@@ -10313,6 +10861,18 @@ const openaiFastPolicyActionOptions = computed(() => [
     label: t("admin.settings.openaiFastPolicy.actionForcePriority"),
   },
   { value: "block", label: t("admin.settings.openaiFastPolicy.actionBlock") },
+  { value: "set", label: t("admin.settings.openaiFastPolicy.actionSet") },
+]);
+
+const openaiFastPolicyTargetTierOptions = computed(() => [
+  {
+    value: "priority",
+    label: t("admin.settings.openaiFastPolicy.tierPriority"),
+  },
+  { value: "flex", label: t("admin.settings.openaiFastPolicy.tierFlex") },
+  { value: "auto", label: t("admin.settings.openaiFastPolicy.tierAuto") },
+  { value: "default", label: t("admin.settings.openaiFastPolicy.tierDefault") },
+  { value: "scale", label: t("admin.settings.openaiFastPolicy.tierScale") },
 ]);
 
 const openaiFastPolicyScopeOptions = computed(() => [
@@ -10329,11 +10889,13 @@ function addOpenAIFastPolicyRule() {
   openaiFastPolicyForm.rules.push({
     service_tier: "priority",
     action: "filter",
+    target_service_tier: "priority",
     scope: "all",
     user_ids: [],
     error_message: "",
     model_whitelist: [],
     fallback_action: "pass",
+    fallback_target_service_tier: "priority",
     fallback_error_message: "",
   });
 }
@@ -10757,6 +11319,7 @@ onMounted(() => {
   loadOverloadCooldownSettings();
   loadRateLimit429CooldownSettings();
   loadStreamTimeoutSettings();
+  loadOpenAIImagesKeepaliveSettings();
   loadRectifierSettings();
   loadBetaPolicySettings();
   loadProviders();

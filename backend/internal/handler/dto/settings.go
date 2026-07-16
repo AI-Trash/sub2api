@@ -43,6 +43,10 @@ type SystemSettings struct {
 	LoginAgreementUpdatedAt          string                   `json:"login_agreement_updated_at"`
 	LoginAgreementDocuments          []LoginAgreementDocument `json:"login_agreement_documents"`
 
+	EmailProvider         string `json:"email_provider"`
+	EmailAPIURL           string `json:"email_api_url"`
+	EmailAPIKeyConfigured bool   `json:"email_api_key_configured"`
+
 	SMTPHost               string `json:"smtp_host"`
 	SMTPPort               int    `json:"smtp_port"`
 	SMTPUsername           string `json:"smtp_username"`
@@ -424,16 +428,26 @@ type BetaPolicySettings struct {
 	Rules []BetaPolicyRule `json:"rules"`
 }
 
+// OpenAIImagesJSONKeepaliveSettings OpenAI 图片非流式 JSON 空白 keepalive 配置 DTO
+type OpenAIImagesJSONKeepaliveSettings struct {
+	Enabled                  bool     `json:"enabled"`
+	KeepaliveIntervalSeconds int      `json:"keepalive_interval_seconds"`
+	UserAgentKeywords        []string `json:"user_agent_keywords"`
+	HeaderMatches            []string `json:"header_matches"`
+}
+
 // OpenAIFastPolicyRule OpenAI fast/flex 策略规则 DTO
 type OpenAIFastPolicyRule struct {
-	ServiceTier          string   `json:"service_tier"`
-	Action               string   `json:"action"`
-	Scope                string   `json:"scope"`
-	UserIDs              []int64  `json:"user_ids,omitempty"`
-	ErrorMessage         string   `json:"error_message,omitempty"`
-	ModelWhitelist       []string `json:"model_whitelist,omitempty"`
-	FallbackAction       string   `json:"fallback_action,omitempty"`
-	FallbackErrorMessage string   `json:"fallback_error_message,omitempty"`
+	ServiceTier               string   `json:"service_tier"`
+	Action                    string   `json:"action"`
+	TargetServiceTier         string   `json:"target_service_tier,omitempty"`
+	Scope                     string   `json:"scope"`
+	UserIDs                   []int64  `json:"user_ids,omitempty"`
+	ErrorMessage              string   `json:"error_message,omitempty"`
+	ModelWhitelist            []string `json:"model_whitelist,omitempty"`
+	FallbackAction            string   `json:"fallback_action,omitempty"`
+	FallbackTargetServiceTier string   `json:"fallback_target_service_tier,omitempty"`
+	FallbackErrorMessage      string   `json:"fallback_error_message,omitempty"`
 }
 
 // OpenAIFastPolicySettings OpenAI fast 策略配置 DTO

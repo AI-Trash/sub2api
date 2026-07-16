@@ -441,7 +441,10 @@ export interface SystemSettings {
   backend_mode_enabled: boolean;
   custom_menu_items: CustomMenuItem[];
   custom_endpoints: CustomEndpoint[];
-  // SMTP settings
+  // Email service settings
+  email_provider: "smtp" | "brevo" | "zeptomail" | string;
+  email_api_url: string;
+  email_api_key_configured: boolean;
   smtp_host: string;
   smtp_port: number;
   smtp_username: string;
@@ -744,6 +747,9 @@ export interface UpdateSettingsRequest {
   backend_mode_enabled?: boolean;
   custom_menu_items?: CustomMenuItem[];
   custom_endpoints?: CustomEndpoint[];
+  email_provider?: "smtp" | "brevo" | "zeptomail" | string;
+  email_api_key?: string;
+  email_api_url?: string;
   smtp_host?: string;
   smtp_port?: number;
   smtp_username?: string;
@@ -953,19 +959,24 @@ export async function updateSettings(
 }
 
 /**
- * Test SMTP connection request
+ * Test email service connection request
  */
 export interface TestSmtpRequest {
+  email_provider?: "smtp" | "brevo" | "zeptomail" | string;
+  email_api_key?: string;
+  email_api_url?: string;
   smtp_host: string;
   smtp_port: number;
   smtp_username: string;
   smtp_password: string;
+  smtp_from_email?: string;
+  smtp_from_name?: string;
   smtp_use_tls: boolean;
 }
 
 /**
- * Test SMTP connection with provided config
- * @param config - SMTP configuration to test
+ * Test email service connection with provided config
+ * @param config - Email service configuration to test
  * @returns Test result message
  */
 export async function testSmtpConnection(
@@ -983,6 +994,9 @@ export async function testSmtpConnection(
  */
 export interface SendTestEmailRequest {
   email: string;
+  email_provider?: "smtp" | "brevo" | "zeptomail" | string;
+  email_api_key?: string;
+  email_api_url?: string;
   smtp_host: string;
   smtp_port: number;
   smtp_username: string;
@@ -993,8 +1007,8 @@ export interface SendTestEmailRequest {
 }
 
 /**
- * Send test email with provided SMTP config
- * @param request - Email address and SMTP config
+ * Send test email with provided email service config
+ * @param request - Email address and email service config
  * @returns Test result message
  */
 export async function sendTestEmail(
@@ -1285,13 +1299,23 @@ export async function updateRectifierSettings(
  * Matches backend dto.OpenAIFastPolicyRule.
  */
 export interface OpenAIFastPolicyRule {
-  service_tier: "all" | "priority" | "flex";
-  action: "pass" | "filter" | "block" | "force_priority";
+  service_tier:
+    | "all"
+    | "any"
+    | "none"
+    | "priority"
+    | "flex"
+    | "auto"
+    | "default"
+    | "scale";
+  action: "pass" | "filter" | "block" | "set" | "force_priority";
+  target_service_tier?: "priority" | "flex" | "auto" | "default" | "scale";
   scope: "all" | "oauth" | "apikey" | "bedrock";
   user_ids?: number[];
   error_message?: string;
   model_whitelist?: string[];
-  fallback_action?: "pass" | "filter" | "block" | "force_priority";
+  fallback_action?: "pass" | "filter" | "block" | "set" | "force_priority";
+  fallback_target_service_tier?: "priority" | "flex" | "auto" | "default" | "scale";
   fallback_error_message?: string;
 }
 
@@ -1345,6 +1369,32 @@ export async function updateBetaPolicySettings(
 ): Promise<BetaPolicySettings> {
   const { data } = await apiClient.put<BetaPolicySettings>(
     "/admin/settings/beta-policy",
+    settings,
+  );
+  return data;
+}
+
+// ==================== OpenAI Images JSON Keepalive Settings ====================
+
+export interface OpenAIImagesJSONKeepaliveSettings {
+  enabled: boolean;
+  keepalive_interval_seconds: number;
+  user_agent_keywords: string[];
+  header_matches: string[];
+}
+
+export async function getOpenAIImagesJSONKeepaliveSettings(): Promise<OpenAIImagesJSONKeepaliveSettings> {
+  const { data } = await apiClient.get<OpenAIImagesJSONKeepaliveSettings>(
+    "/admin/settings/openai-images-json-keepalive",
+  );
+  return data;
+}
+
+export async function updateOpenAIImagesJSONKeepaliveSettings(
+  settings: OpenAIImagesJSONKeepaliveSettings,
+): Promise<OpenAIImagesJSONKeepaliveSettings> {
+  const { data } = await apiClient.put<OpenAIImagesJSONKeepaliveSettings>(
+    "/admin/settings/openai-images-json-keepalive",
     settings,
   );
   return data;
@@ -1433,6 +1483,8 @@ export const settingsAPI = {
   updateRectifierSettings,
   getBetaPolicySettings,
   updateBetaPolicySettings,
+  getOpenAIImagesJSONKeepaliveSettings,
+  updateOpenAIImagesJSONKeepaliveSettings,
   getWebSearchEmulationConfig,
   updateWebSearchEmulationConfig,
   testWebSearchEmulation,

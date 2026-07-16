@@ -824,14 +824,16 @@ func (s *SettingService) SetOpenAIFastPolicySettings(ctx context.Context, settin
 	}
 
 	validActions := map[string]bool{
-		BetaPolicyActionPass: true, BetaPolicyActionFilter: true, BetaPolicyActionBlock: true,
+		BetaPolicyActionPass: true, BetaPolicyActionFilter: true, BetaPolicyActionBlock: true, BetaPolicyActionSet: true,
 		OpenAIFastPolicyActionForcePriority: true,
 	}
 	validScopes := map[string]bool{
 		BetaPolicyScopeAll: true, BetaPolicyScopeOAuth: true, BetaPolicyScopeAPIKey: true, BetaPolicyScopeBedrock: true,
 	}
 	validTiers := map[string]bool{
-		OpenAIFastTierAny: true, OpenAIFastTierPriority: true, OpenAIFastTierFlex: true,
+		OpenAIFastTierAny: true, OpenAIFastTierAnyOrNone: true, OpenAIFastTierNone: true,
+		OpenAIFastTierPriority: true, OpenAIFastTierFlex: true, OpenAIFastTierAuto: true,
+		OpenAIFastTierDefault: true, OpenAIFastTierScale: true,
 	}
 
 	for i, rule := range settings.Rules {
@@ -845,6 +847,15 @@ func (s *SettingService) SetOpenAIFastPolicySettings(ctx context.Context, settin
 		settings.Rules[i].ServiceTier = tier
 		if !validActions[rule.Action] {
 			return fmt.Errorf("rule[%d]: invalid action %q", i, rule.Action)
+		}
+		targetTier := strings.ToLower(strings.TrimSpace(rule.TargetServiceTier))
+		if rule.Action == BetaPolicyActionSet {
+			if !validTiers[targetTier] || targetTier == OpenAIFastTierAny || targetTier == OpenAIFastTierAnyOrNone || targetTier == OpenAIFastTierNone {
+				return fmt.Errorf("rule[%d]: invalid target_service_tier %q", i, rule.TargetServiceTier)
+			}
+			settings.Rules[i].TargetServiceTier = targetTier
+		} else {
+			settings.Rules[i].TargetServiceTier = ""
 		}
 		if !validScopes[rule.Scope] {
 			return fmt.Errorf("rule[%d]: invalid scope %q", i, rule.Scope)
@@ -869,6 +880,15 @@ func (s *SettingService) SetOpenAIFastPolicySettings(ctx context.Context, settin
 		if rule.FallbackAction != "" && !validActions[rule.FallbackAction] {
 			return fmt.Errorf("rule[%d]: invalid fallback_action %q", i, rule.FallbackAction)
 		}
+		fallbackTargetTier := strings.ToLower(strings.TrimSpace(rule.FallbackTargetServiceTier))
+		if rule.FallbackAction == BetaPolicyActionSet {
+			if !validTiers[fallbackTargetTier] || fallbackTargetTier == OpenAIFastTierAny || fallbackTargetTier == OpenAIFastTierAnyOrNone || fallbackTargetTier == OpenAIFastTierNone {
+				return fmt.Errorf("rule[%d]: invalid fallback_target_service_tier %q", i, rule.FallbackTargetServiceTier)
+			}
+			settings.Rules[i].FallbackTargetServiceTier = fallbackTargetTier
+		} else {
+			settings.Rules[i].FallbackTargetServiceTier = ""
+		}
 	}
 
 	data, err := json.Marshal(settings)
@@ -877,6 +897,101 @@ func (s *SettingService) SetOpenAIFastPolicySettings(ctx context.Context, settin
 	}
 
 	return s.settingRepo.Set(ctx, SettingKeyOpenAIFastPolicySettings, string(data))
+}
+
+// GetOpenAIImagesJSONKeepaliveSettings 获取 OpenAI 图片非流式 JSON 空白 keepalive 配置
+func (s *SettingService) GetOpenAIImagesJSONKeepaliveSettings(ctx context.Context) (*OpenAIImagesJSONKeepaliveSettings, error) {
+	if s == nil || s.settingRepo == nil {
+		return DefaultOpenAIImagesJSONKeepaliveSettings(), nil
+	}
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyOpenAIImagesJSONKeepaliveSettings)
+	if err != nil {
+		if errors.Is(err, ErrSettingNotFound) {
+			return DefaultOpenAIImagesJSONKeepaliveSettings(), nil
+		}
+		return nil, fmt.Errorf("get openai images json keepalive settings: %w", err)
+	}
+	if strings.TrimSpace(value) == "" {
+		return DefaultOpenAIImagesJSONKeepaliveSettings(), nil
+	}
+
+	var settings OpenAIImagesJSONKeepaliveSettings
+	if err := json.Unmarshal([]byte(value), &settings); err != nil {
+		return DefaultOpenAIImagesJSONKeepaliveSettings(), nil
+	}
+	return normalizeOpenAIImagesJSONKeepaliveSettings(&settings, false)
+}
+
+// SetOpenAIImagesJSONKeepaliveSettings 设置 OpenAI 图片非流式 JSON 空白 keepalive 配置
+func (s *SettingService) SetOpenAIImagesJSONKeepaliveSettings(ctx context.Context, settings *OpenAIImagesJSONKeepaliveSettings) error {
+	if settings == nil {
+		return fmt.Errorf("settings cannot be nil")
+	}
+	normalized, err := normalizeOpenAIImagesJSONKeepaliveSettings(settings, true)
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(normalized)
+	if err != nil {
+		return fmt.Errorf("marshal openai images json keepalive settings: %w", err)
+	}
+	return s.settingRepo.Set(ctx, SettingKeyOpenAIImagesJSONKeepaliveSettings, string(data))
+}
+
+// IsOpenAIImagesJSONKeepaliveEnabled 查询 OpenAI 图片非流式 JSON 空白 keepalive 是否启用。
+func (s *SettingService) IsOpenAIImagesJSONKeepaliveEnabled(ctx context.Context) bool {
+	if s == nil {
+		return DefaultOpenAIImagesJSONKeepaliveSettings().Enabled
+	}
+	settings, err := s.GetOpenAIImagesJSONKeepaliveSettings(ctx)
+	if err != nil || settings == nil {
+		return DefaultOpenAIImagesJSONKeepaliveSettings().Enabled
+	}
+	return settings.Enabled
+}
+
+func normalizeOpenAIImagesJSONKeepaliveSettings(settings *OpenAIImagesJSONKeepaliveSettings, strict bool) (*OpenAIImagesJSONKeepaliveSettings, error) {
+	defaults := DefaultOpenAIImagesJSONKeepaliveSettings()
+	if settings == nil {
+		return defaults, nil
+	}
+	normalized := &OpenAIImagesJSONKeepaliveSettings{
+		Enabled:                  settings.Enabled,
+		KeepaliveIntervalSeconds: settings.KeepaliveIntervalSeconds,
+		UserAgentKeywords:        sanitizeOpenAIImagesJSONKeepaliveStrings(settings.UserAgentKeywords, defaults.UserAgentKeywords),
+		HeaderMatches:            sanitizeOpenAIImagesJSONKeepaliveStrings(settings.HeaderMatches, defaults.HeaderMatches),
+	}
+	if normalized.KeepaliveIntervalSeconds == 0 {
+		normalized.KeepaliveIntervalSeconds = defaults.KeepaliveIntervalSeconds
+	}
+	if normalized.KeepaliveIntervalSeconds < 5 || normalized.KeepaliveIntervalSeconds > 30 {
+		if strict {
+			return nil, fmt.Errorf("keepalive_interval_seconds must be between 5-30")
+		}
+		normalized.KeepaliveIntervalSeconds = defaults.KeepaliveIntervalSeconds
+	}
+	return normalized, nil
+}
+
+func sanitizeOpenAIImagesJSONKeepaliveStrings(values []string, fallback []string) []string {
+	cleaned := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		key := strings.ToLower(trimmed)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		cleaned = append(cleaned, trimmed)
+	}
+	if len(cleaned) == 0 {
+		return append([]string(nil), fallback...)
+	}
+	return cleaned
 }
 
 // SetStreamTimeoutSettings 设置流超时处理配置
