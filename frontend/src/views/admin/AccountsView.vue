@@ -1452,7 +1452,55 @@ const toggleSelectAllVisible = (event: Event) => {
   const target = event.target as HTMLInputElement
   toggleVisible(target.checked)
 }
-const handleBulkDelete = async () => { if(!confirm(t('common.confirm'))) return; try { await Promise.all(selIds.value.map(id => adminAPI.accounts.delete(id))); clearSelection(); reload() } catch (error) { console.error('Failed to bulk delete accounts:', error) } }
+const handleBulkDelete = async () => {
+  const accountIds = [...selIds.value]
+  if (accountIds.length === 0) return
+  if (!confirm(t('admin.accounts.bulkDeleteConfirm', { count: accountIds.length }))) return
+  try {
+    const result = await adminAPI.accounts.bulkDelete(accountIds)
+    const success = result.success || 0
+    const failed = result.failed || 0
+    if (success > 0 && failed === 0) {
+      appStore.showSuccess(t('admin.accounts.bulkDeleteSuccess', { count: success }))
+      clearSelection()
+    } else if (success > 0) {
+      appStore.showError(t('admin.accounts.bulkDeletePartial', { success, failed }))
+      setSelectedIds(result.failed_ids && result.failed_ids.length > 0 ? result.failed_ids : accountIds)
+    } else {
+      appStore.showError(t('admin.accounts.bulkDeleteFailed'))
+    }
+    reload()
+  } catch (error: any) {
+    console.error('Failed to bulk delete accounts:', error)
+    appStore.showError(error.message || t('admin.accounts.bulkDeleteFailed'))
+  }
+}
+const handleBulkDeleteFiltered = async () => {
+  const filters = buildBulkEditFilterSnapshot()
+  const count = pagination.total || 0
+  if (count <= 0) {
+    appStore.showError(t('admin.accounts.bulkEdit.noSelection'))
+    return
+  }
+  if (!confirm(t('admin.accounts.bulkDeleteConfirm', { count }))) return
+  try {
+    const result = await adminAPI.accounts.bulkDelete({ filters })
+    const success = result.success || 0
+    const failed = result.failed || 0
+    if (success > 0 && failed === 0) {
+      appStore.showSuccess(t('admin.accounts.bulkDeleteSuccess', { count: success }))
+      clearSelection()
+    } else if (success > 0) {
+      appStore.showError(t('admin.accounts.bulkDeletePartial', { success, failed }))
+    } else {
+      appStore.showError(t('admin.accounts.bulkDeleteFailed'))
+    }
+    reload()
+  } catch (error: any) {
+    console.error('Failed to bulk delete filtered accounts:', error)
+    appStore.showError(error.message || t('admin.accounts.bulkDeleteFailed'))
+  }
+}
 const handleBulkResetStatus = async () => {
   if (!confirm(t('common.confirm'))) return
   try {

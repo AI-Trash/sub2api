@@ -7676,7 +7676,7 @@ function emailApiUrlPlaceholder(provider: EmailProvider | string): string {
 
 function effectiveEmailApiUrl(): string {
   const url = (form.email_api_url || "").trim();
-  return url || defaultEmailApiUrl(form.email_provider);
+  return url || defaultEmailApiUrl(form.email_provider || "smtp");
 }
 
 const smtpPasswordManuallyEdited = ref(false);
@@ -8188,7 +8188,15 @@ type SettingsForm = Omit<
   | "wechat_connect_open_enabled"
   | "wechat_connect_mp_enabled"
   | "wechat_connect_mobile_enabled"
+  | "email_provider"
+  | "email_api_url"
+  | "email_api_key"
+  | "email_api_key_configured"
 > & {
+  email_provider: EmailProvider;
+  email_api_url: string;
+  email_api_key: string;
+  email_api_key_configured: boolean;
   smtp_password: string;
   turnstile_secret_key: string;
   linuxdo_connect_client_secret: string;
@@ -8303,6 +8311,7 @@ const form = reactive<SettingsForm>({
   email_provider: "smtp" as EmailProvider,
   email_api_url: "",
   email_api_key: "",
+  email_api_key_configured: false,
   smtp_host: "",
   smtp_port: 587,
   smtp_username: "",
