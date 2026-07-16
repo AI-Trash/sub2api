@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <AppLayout>
     <TablePageLayout>
       <template #filters>
@@ -38,6 +38,15 @@
             </button>
             <button @click="handleExportCodes" class="btn btn-secondary">
               {{ t('admin.redeem.exportCsv') }}
+            </button>
+            <button @click="showDeleteUsedOrExpiredDialog = true" class="btn btn-danger">
+              {{ t('admin.redeem.deleteUsedOrExpired') }}
+            </button>
+            <button @click="showDeleteUnusedDialog = true" class="btn btn-danger">
+              {{ t('admin.redeem.deleteAllUnused') }}
+            </button>
+            <button @click="showDeleteAllDialog = true" class="btn btn-danger">
+              {{ t('admin.redeem.deleteAllCodes') }}
             </button>
             <button
               data-test="batch-update-open"
@@ -87,7 +96,7 @@
             />
           </template>
 
-          <template #cell-code="{ value }">
+          <template #cell-code="{ value, row }">
             <div class="flex items-center space-x-2">
               <code class="font-mono text-sm text-gray-900 dark:text-gray-100">{{ value }}</code>
               <button
@@ -101,6 +110,36 @@
                 :title="copiedCode === value ? t('admin.redeem.copied') : t('keys.copyToClipboard')"
               >
                 <Icon v-if="copiedCode !== value" name="copy" size="sm" :stroke-width="2" />
+                <svg v-else class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M5 13l4 4L19 7"
+                  />
+                </svg>
+              </button>
+              <button
+                v-if="row.type === 'invitation'"
+                @click="copyInvitationLink(value)"
+                :class="[
+                  'flex items-center transition-colors',
+                  copiedInviteLink === value
+                    ? 'text-green-500'
+                    : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+                ]"
+                :title="
+                  copiedInviteLink === value
+                    ? t('admin.redeem.inviteLinkCopied')
+                    : t('admin.redeem.copyInviteLink')
+                "
+              >
+                <Icon
+                  v-if="copiedInviteLink !== value"
+                  name="link"
+                  size="sm"
+                  :stroke-width="2"
+                />
                 <svg v-else class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
                     stroke-linecap="round"
@@ -238,13 +277,6 @@
           @update:page="handlePageChange"
           @update:pageSize="handlePageSizeChange"
         />
-
-        <!-- Batch Actions -->
-        <div v-if="filters.status === 'unused'" class="flex justify-end">
-          <button @click="showDeleteUnusedDialog = true" class="btn btn-danger">
-            {{ t('admin.redeem.deleteAllUnused') }}
-          </button>
-        </div>
       </template>
     </TablePageLayout>
 
@@ -272,6 +304,30 @@
       @cancel="showDeleteUnusedDialog = false"
     />
 
+    <!-- Delete Used or Expired Codes Dialog -->
+    <ConfirmDialog
+      :show="showDeleteUsedOrExpiredDialog"
+      :title="t('admin.redeem.deleteUsedOrExpired')"
+      :message="t('admin.redeem.deleteUsedOrExpiredConfirm')"
+      :confirm-text="t('admin.redeem.deleteAll')"
+      :cancel-text="t('common.cancel')"
+      danger
+      @confirm="confirmDeleteUsedOrExpired"
+      @cancel="showDeleteUsedOrExpiredDialog = false"
+    />
+
+    <!-- Delete All Codes Dialog -->
+    <ConfirmDialog
+      :show="showDeleteAllDialog"
+      :title="t('admin.redeem.deleteAllCodes')"
+      :message="t('admin.redeem.deleteAllCodesConfirm')"
+      :confirm-text="t('admin.redeem.deleteAll')"
+      :cancel-text="t('common.cancel')"
+      danger
+      @confirm="confirmDeleteAll"
+      @cancel="showDeleteAllDialog = false"
+    />
+
     <!-- Generate Codes Dialog -->
     <Teleport to="body">
       <div v-if="showGenerateDialog" class="fixed inset-0 z-50 flex items-center justify-center">
@@ -287,11 +343,11 @@
               <label class="input-label">{{ t('admin.redeem.codeType') }}</label>
               <Select v-model="generateForm.type" :options="typeOptions" />
             </div>
-            <!-- 余额/并发类型：显示数值输入 -->
-            <div v-if="generateForm.type !== 'subscription' && generateForm.type !== 'invitation'">
+            <!-- 浣欓/骞跺彂/閭€璇风爜绫诲瀷锛氭樉绀烘暟鍊艰緭鍏?-->
+            <div v-if="generateForm.type !== 'subscription'">
               <label class="input-label">
                 {{
-                  generateForm.type === 'balance'
+                  generateForm.type === 'balance' || generateForm.type === 'invitation'
                     ? t('admin.redeem.amount')
                     : t('admin.redeem.columns.value')
                 }}
@@ -299,19 +355,19 @@
               <input
                 v-model.number="generateForm.value"
                 type="number"
-                :step="generateForm.type === 'balance' ? '0.01' : '1'"
-                :min="generateForm.type === 'balance' ? '0.01' : '1'"
+                :step="generateForm.type === 'balance' || generateForm.type === 'invitation' ? '0.01' : '1'"
+                :min="generateForm.type === 'balance' || generateForm.type === 'invitation' ? '0.01' : '1'"
                 required
                 class="input"
               />
             </div>
-            <!-- 邀请码类型：显示提示信息 -->
+            <!-- 閭€璇风爜绫诲瀷锛氭樉绀烘彁绀轰俊鎭?-->
             <div v-if="generateForm.type === 'invitation'" class="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
               <p class="text-sm text-blue-700 dark:text-blue-300">
                 {{ t('admin.redeem.invitationHint') }}
               </p>
             </div>
-            <!-- 订阅类型：显示分组选择和有效天数 -->
+            <!-- 璁㈤槄绫诲瀷锛氭樉绀哄垎缁勯€夋嫨鍜屾湁鏁堝ぉ鏁?-->
             <template v-if="generateForm.type === 'subscription'">
               <div>
                 <label class="input-label">{{ t('admin.redeem.selectGroup') }}</label>
@@ -596,6 +652,29 @@
               </svg>
               {{ copiedAll ? t('admin.redeem.copied') : t('admin.redeem.copyAll') }}
             </button>
+            <button
+              v-if="generatedCodesAreInvitation"
+              @click="copyGeneratedInvitationLinks"
+              :class="[
+                'btn flex items-center gap-2 transition-all',
+                copiedInviteLinks ? 'btn-success' : 'btn-secondary'
+              ]"
+            >
+              <Icon v-if="!copiedInviteLinks" name="link" size="sm" :stroke-width="2" />
+              <svg v-else class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M5 13l4 4L19 7"
+                />
+              </svg>
+              {{
+                copiedInviteLinks
+                  ? t('admin.redeem.inviteLinksCopied')
+                  : t('admin.redeem.copyInviteLinks')
+              }}
+            </button>
             <button @click="downloadGeneratedCodes" class="btn btn-primary flex items-center gap-2">
               <Icon name="download" size="sm" :stroke-width="2" />
               {{ t('admin.redeem.download') }}
@@ -634,6 +713,7 @@ import Select from '@/components/common/Select.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
 import Icon from '@/components/icons/Icon.vue'
+import { buildInvitationLink } from '@/utils/invitationLink'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -653,7 +733,7 @@ const showResultDialog = ref(false)
 const generatedCodes = ref<RedeemCode[]>([])
 const subscriptionGroups = ref<Group[]>([])
 
-// 订阅类型分组选项
+// 璁㈤槄绫诲瀷鍒嗙粍閫夐」
 const subscriptionGroupOptions = computed(() => {
   return subscriptionGroups.value
     .filter((g) => g.subscription_type === 'subscription')
@@ -676,6 +756,14 @@ const generatedCodesText = computed(() => {
   return generatedCodes.value.map((code) => code.code).join('\n')
 })
 
+const generatedInvitationLinksText = computed(() => {
+  return generatedCodes.value.map((code) => buildInvitationLink(code.code)).join('\n')
+})
+
+const generatedCodesAreInvitation = computed(() => {
+  return generatedCodes.value.length > 0 && generatedCodes.value.every((code) => code.type === 'invitation')
+})
+
 const textareaHeight = computed(() => {
   const lineCount = generatedCodes.value.length
   const lineHeight = 24 // approximate line height in px
@@ -690,11 +778,13 @@ const textareaHeight = computed(() => {
 })
 
 const copiedAll = ref(false)
+const copiedInviteLinks = ref(false)
 
 const closeResultDialog = () => {
   showResultDialog.value = false
   generatedCodes.value = []
   copiedAll.value = false
+  copiedInviteLinks.value = false
 }
 
 const copyGeneratedCodes = async () => {
@@ -703,6 +793,20 @@ const copyGeneratedCodes = async () => {
     copiedAll.value = true
     setTimeout(() => {
       copiedAll.value = false
+    }, 2000)
+  }
+}
+
+const copyGeneratedInvitationLinks = async () => {
+  const success = await clipboardCopy(
+    generatedInvitationLinksText.value,
+    t('admin.redeem.inviteLinksCopied')
+  )
+
+  if (success) {
+    copiedInviteLinks.value = true
+    setTimeout(() => {
+      copiedInviteLinks.value = false
     }, 2000)
   }
 }
@@ -788,9 +892,12 @@ let abortController: AbortController | null = null
 
 const showDeleteDialog = ref(false)
 const showDeleteUnusedDialog = ref(false)
+const showDeleteUsedOrExpiredDialog = ref(false)
+const showDeleteAllDialog = ref(false)
 const showBatchUpdateDialog = ref(false)
 const deletingCode = ref<RedeemCode | null>(null)
 const copiedCode = ref<string | null>(null)
+const copiedInviteLink = ref<string | null>(null)
 
 const {
   selectedSet: selectedCodeIds,
@@ -837,13 +944,11 @@ const generateForm = reactive({
   custom_expiry_days: 7
 })
 
-// 监听类型变化，邀请码类型时自动设置 value 为 0
+// 鐩戝惉绫诲瀷鍙樺寲锛岀‘淇濋渶瑕佹暟鍊肩殑绫诲瀷鏈夐粯璁ゅ€?
 watch(
   () => generateForm.type,
-  (newType) => {
-    if (newType === 'invitation') {
-      generateForm.value = 0
-    } else if (generateForm.value === 0) {
+  () => {
+    if (generateForm.value === 0) {
       generateForm.value = 10
     }
   }
@@ -1018,7 +1123,7 @@ const buildBatchUpdateFields = (): BatchUpdateRedeemCodeFields | null => {
 }
 
 const handleGenerateCodes = async () => {
-  // 订阅类型必须选择分组
+  // 璁㈤槄绫诲瀷蹇呴』閫夋嫨鍒嗙粍
   if (generateForm.type === 'subscription' && !generateForm.group_id) {
     appStore.showError(t('admin.redeem.groupRequired'))
     return
@@ -1043,7 +1148,7 @@ const handleGenerateCodes = async () => {
     showGenerateDialog.value = false
     generatedCodes.value = result
     showResultDialog.value = true
-    // 重置表单
+    // 閲嶇疆琛ㄥ崟
     generateForm.group_id = null
     generateForm.validity_days = 30
     generateForm.expiry_option = 'never'
@@ -1063,6 +1168,19 @@ const copyToClipboard = async (text: string) => {
     copiedCode.value = text
     setTimeout(() => {
       copiedCode.value = null
+    }, 2000)
+  }
+}
+
+const copyInvitationLink = async (code: string) => {
+  const success = await clipboardCopy(
+    buildInvitationLink(code),
+    t('admin.redeem.inviteLinkCopied')
+  )
+  if (success) {
+    copiedInviteLink.value = code
+    setTimeout(() => {
+      copiedInviteLink.value = null
     }, 2000)
   }
 }
@@ -1110,23 +1228,52 @@ const confirmDelete = async () => {
 
 const confirmDeleteUnused = async () => {
   try {
-    // Get all unused codes and delete them
-    const unusedCodesResponse = await adminAPI.redeem.list(1, 1000, { status: 'unused' })
-    const unusedCodeIds = unusedCodesResponse.items.map((code) => code.id)
-
-    if (unusedCodeIds.length === 0) {
+    const result = await adminAPI.redeem.deleteUnused()
+    if (result.deleted === 0) {
       appStore.showInfo(t('admin.redeem.noUnusedCodes'))
       showDeleteUnusedDialog.value = false
       return
     }
-
-    const result = await adminAPI.redeem.batchDelete(unusedCodeIds)
     appStore.showSuccess(t('admin.redeem.codesDeleted', { count: result.deleted }))
     showDeleteUnusedDialog.value = false
     loadCodes()
   } catch (error: any) {
     appStore.showError(error.response?.data?.detail || t('admin.redeem.failedToDeleteUnused'))
     console.error('Error deleting unused codes:', error)
+  }
+}
+
+const confirmDeleteUsedOrExpired = async () => {
+  try {
+    const result = await adminAPI.redeem.deleteUsedOrExpired()
+    if (result.deleted === 0) {
+      appStore.showInfo(t('admin.redeem.noUsedOrExpiredCodes'))
+      showDeleteUsedOrExpiredDialog.value = false
+      return
+    }
+    appStore.showSuccess(t('admin.redeem.usedOrExpiredCodesDeleted', { count: result.deleted }))
+    showDeleteUsedOrExpiredDialog.value = false
+    loadCodes()
+  } catch (error: any) {
+    appStore.showError(error.response?.data?.detail || t('admin.redeem.failedToDeleteUsedOrExpired'))
+    console.error('Error deleting used or expired codes:', error)
+  }
+}
+
+const confirmDeleteAll = async () => {
+  try {
+    const result = await adminAPI.redeem.deleteAll()
+    if (result.deleted === 0) {
+      appStore.showInfo(t('admin.redeem.noCodesToDelete'))
+      showDeleteAllDialog.value = false
+      return
+    }
+    appStore.showSuccess(t('admin.redeem.allCodesDeleted', { count: result.deleted }))
+    showDeleteAllDialog.value = false
+    loadCodes()
+  } catch (error: any) {
+    appStore.showError(error.response?.data?.detail || t('admin.redeem.failedToDeleteAll'))
+    console.error('Error deleting all codes:', error)
   }
 }
 

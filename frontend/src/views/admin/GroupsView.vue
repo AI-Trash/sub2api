@@ -343,6 +343,24 @@
                   }}</span
                 >
               </div>
+              <div class="text-gray-500 dark:text-gray-400">
+                <span class="text-gray-400 dark:text-gray-500">{{
+                  t("admin.groups.usageWindow5h")
+                }}</span>
+                <span class="ml-1 font-medium text-gray-700 dark:text-gray-300">{{
+                  formatPercent(usageMap.get(row.id)?.window_5h_percent ?? 0)
+                }}</span>
+              </div>
+              <div class="text-gray-500 dark:text-gray-400">
+                <span class="text-gray-400 dark:text-gray-500">{{
+                  t("admin.groups.usageWindowWeekly")
+                }}</span>
+                <span class="ml-1 font-medium text-gray-700 dark:text-gray-300">{{
+                  formatPercent(
+                    usageMap.get(row.id)?.window_weekly_percent ?? 0,
+                  )
+                }}</span>
+              </div>
             </div>
           </template>
 
@@ -3923,6 +3941,8 @@ const loading = ref(false);
 type GroupUsageSummary = {
   today_cost: number;
   total_cost: number;
+  window_5h_percent: number;
+  window_weekly_percent: number;
 };
 
 const usageMap = ref<Map<number, GroupUsageSummary>>(new Map());
@@ -4621,9 +4641,17 @@ const loadGroups = async () => {
 };
 
 const formatCost = (cost: number): string => {
-  if (cost >= 1000) return cost.toFixed(0);
-  if (cost >= 100) return cost.toFixed(1);
-  return cost.toFixed(2);
+  const value = Number.isFinite(cost) ? cost : 0;
+  const absValue = Math.abs(value);
+  if (absValue >= 1000) return value.toFixed(2);
+  if (absValue >= 0.01) return value.toFixed(4);
+  return value.toFixed(6);
+};
+
+const formatPercent = (value: number): string => {
+  const percent = Number.isFinite(value) ? value : 0;
+  if (Math.abs(percent) >= 1000) return `${percent.toFixed(0)}%`;
+  return `${percent.toFixed(2)}%`;
 };
 
 const formatUsd = (cost: number | null | undefined): string =>
@@ -4660,6 +4688,8 @@ const loadUsageSummary = async () => {
       map.set(item.group_id, {
         today_cost: item.today_cost,
         total_cost: item.total_cost,
+        window_5h_percent: item.window_5h_percent ?? 0,
+        window_weekly_percent: item.window_weekly_percent ?? 0,
       });
     }
     usageMap.value = map;

@@ -115,11 +115,13 @@ type EndpointStat struct {
 	ActualCost  float64 `json:"actual_cost"` // 实际扣除
 }
 
-// GroupUsageSummary represents today's and cumulative cost for a single group.
+// GroupUsageSummary represents cost and account window usage totals for a single group.
 type GroupUsageSummary struct {
-	GroupID   int64   `json:"group_id"`
-	TodayCost float64 `json:"today_cost"`
-	TotalCost float64 `json:"total_cost"`
+	GroupID             int64   `json:"group_id"`
+	TodayCost           float64 `json:"today_cost"`
+	TotalCost           float64 `json:"total_cost"`
+	Window5hPercent     float64 `json:"window_5h_percent"`
+	WindowWeeklyPercent float64 `json:"window_weekly_percent"`
 }
 
 // GroupStat represents usage statistics for a single group
