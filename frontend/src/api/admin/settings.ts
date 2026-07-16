@@ -487,6 +487,10 @@ export interface SystemSettings {
   custom_menu_items: CustomMenuItem[];
   custom_endpoints: CustomEndpoint[];
   // SMTP settings
+  email_provider?: "smtp" | "brevo" | "zeptomail" | string;
+  email_api_url?: string;
+  email_api_key?: string;
+  email_api_key_configured?: boolean;
   smtp_host: string;
   smtp_port: number;
   smtp_username: string;
@@ -826,6 +830,10 @@ export interface UpdateSettingsRequest {
   backend_mode_enabled?: boolean;
   custom_menu_items?: CustomMenuItem[];
   custom_endpoints?: CustomEndpoint[];
+  email_provider?: "smtp" | "brevo" | "zeptomail" | string;
+  email_api_url?: string;
+  email_api_key?: string;
+  email_api_key_configured?: boolean;
   smtp_host?: string;
   smtp_port?: number;
   smtp_username?: string;
@@ -1068,6 +1076,10 @@ export async function updateSettings(
  * Test SMTP connection request
  */
 export interface TestSmtpRequest {
+  email_provider?: "smtp" | "brevo" | "zeptomail" | string;
+  email_api_url?: string;
+  email_api_key?: string;
+  email_api_key_configured?: boolean;
   smtp_host: string;
   smtp_port: number;
   smtp_username: string;
@@ -1095,6 +1107,10 @@ export async function testSmtpConnection(
  */
 export interface SendTestEmailRequest {
   email: string;
+  email_provider?: "smtp" | "brevo" | "zeptomail" | string;
+  email_api_url?: string;
+  email_api_key?: string;
+  email_api_key_configured?: boolean;
   smtp_host: string;
   smtp_port: number;
   smtp_username: string;
