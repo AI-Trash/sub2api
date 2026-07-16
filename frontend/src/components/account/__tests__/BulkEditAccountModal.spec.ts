@@ -125,7 +125,8 @@ describe('BulkEditAccountModal', () => {
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
       credentials: {
-        model_mapping: {}
+        model_mapping: {},
+        model_blacklist: []
       }
     })
   })

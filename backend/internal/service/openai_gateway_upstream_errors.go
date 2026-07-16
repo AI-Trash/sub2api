@@ -164,6 +164,72 @@ func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string
 	return match(string(upstreamBody))
 }
 
+func isOpenAICodexChatGPTModelUnsupportedError(upstreamStatusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	if upstreamStatusCode != http.StatusBadRequest {
+		return false
+	}
+
+	match := func(text string) bool {
+		lower := strings.ToLower(strings.TrimSpace(text))
+		return strings.Contains(lower, "not supported when using codex with a chatgpt account")
+	}
+
+	if match(upstreamMsg) {
+		return true
+	}
+	if len(upstreamBody) == 0 {
+		return false
+	}
+	if match(gjson.GetBytes(upstreamBody, "detail").String()) {
+		return true
+	}
+	if match(gjson.GetBytes(upstreamBody, "error.message").String()) {
+		return true
+	}
+	return match(string(upstreamBody))
+}
+
+func extractOpenAICodexChatGPTUnsupportedModel(upstreamMsg string, upstreamBody []byte) string {
+	candidates := []string{upstreamMsg}
+	if len(upstreamBody) > 0 {
+		candidates = append(candidates,
+			gjson.GetBytes(upstreamBody, "detail").String(),
+			gjson.GetBytes(upstreamBody, "error.message").String(),
+			string(upstreamBody),
+		)
+	}
+
+	for _, candidate := range candidates {
+		if model := extractOpenAICodexChatGPTUnsupportedModelFromText(candidate); model != "" {
+			return model
+		}
+	}
+	return ""
+}
+
+func extractOpenAICodexChatGPTUnsupportedModelFromText(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	lower := strings.ToLower(text)
+	marker := " model is not supported when using codex with a chatgpt account"
+	markerIndex := strings.Index(lower, marker)
+	if markerIndex <= 0 {
+		return ""
+	}
+	prefix := text[:markerIndex]
+	endQuote := strings.LastIndex(prefix, "'")
+	if endQuote <= 0 {
+		return ""
+	}
+	startQuote := strings.LastIndex(prefix[:endQuote], "'")
+	if startQuote < 0 || startQuote+1 >= endQuote {
+		return ""
+	}
+	return strings.TrimSpace(prefix[startQuote+1 : endQuote])
+}
+
 func isOpenAIContextWindowError(upstreamMsg string, upstreamBody []byte) bool {
 	match := func(text string) bool {
 		lower := strings.ToLower(strings.TrimSpace(text))
@@ -228,7 +294,8 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode i
 	if s.shouldFailoverUpstreamError(statusCode) {
 		return true
 	}
-	return isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody)
+	return isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody) ||
+		isOpenAICodexChatGPTModelUnsupportedError(statusCode, upstreamMsg, upstreamBody)
 }
 
 // OpenAIRequestBodyTooLargeClientMessage is the fixed downstream message used
@@ -305,12 +372,75 @@ func (s *OpenAIGatewayService) readUpstreamErrorBody(resp *http.Response) []byte
 	return body
 }
 
-func (s *OpenAIGatewayService) handleFailoverSideEffects(ctx context.Context, resp *http.Response, account *Account, responseBody []byte, canonicalModel ...string) {
-	if len(canonicalModel) > 0 {
-		s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, responseBody, canonicalModel[0])
+func (s *OpenAIGatewayService) handleFailoverSideEffects(ctx context.Context, resp *http.Response, account *Account, responseBody []byte, requestedModel ...string) {
+	if resp == nil {
 		return
 	}
-	s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, responseBody)
+	body := responseBody
+	if len(body) == 0 {
+		body = s.readUpstreamErrorBody(resp)
+	}
+	model := ""
+	if len(requestedModel) > 0 {
+		model = strings.TrimSpace(requestedModel[0])
+	}
+	upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(body)))
+	if isOpenAICodexChatGPTModelUnsupportedError(resp.StatusCode, upstreamMsg, body) {
+		unsupportedModel := extractOpenAICodexChatGPTUnsupportedModel(upstreamMsg, body)
+		if unsupportedModel == "" {
+			unsupportedModel = model
+		}
+		if err := s.addOpenAIAccountModelBlacklist(ctx, account, unsupportedModel); err != nil {
+			accountID := int64(0)
+			if account != nil {
+				accountID = account.ID
+			}
+			logger.FromContext(ctx).Warn("failed to append OpenAI account model blacklist after Codex unsupported-model error",
+				zap.Int64("account_id", accountID),
+				zap.String("model", unsupportedModel),
+				zap.Error(err),
+			)
+		}
+		return
+	}
+	if len(requestedModel) > 0 {
+		s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, requestedModel[0])
+		return
+	}
+	s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body)
+}
+
+func (s *OpenAIGatewayService) addOpenAIAccountModelBlacklist(ctx context.Context, account *Account, model string) error {
+	if s == nil || s.accountRepo == nil || account == nil || account.ID <= 0 {
+		return nil
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return nil
+	}
+
+	latest, err := s.accountRepo.GetByID(ctx, account.ID)
+	if err != nil {
+		return err
+	}
+	if latest == nil {
+		return nil
+	}
+	if latest.IsModelBlacklisted(model) {
+		return nil
+	}
+
+	credentials := cloneCredentials(latest.Credentials)
+	blacklist := latest.GetModelBlacklist()
+	for _, existing := range blacklist {
+		if strings.TrimSpace(existing) == model {
+			return nil
+		}
+	}
+	blacklist = append(blacklist, model)
+	credentials["model_blacklist"] = blacklist
+
+	return persistAccountCredentials(ctx, s.accountRepo, latest, credentials)
 }
 
 func (s *OpenAIGatewayService) handleErrorResponse(

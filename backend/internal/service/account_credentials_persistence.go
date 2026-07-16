@@ -9,6 +9,10 @@ type accountCredentialsUpdater interface {
 	UpdateCredentials(ctx context.Context, id int64, credentials map[string]any) error
 }
 
+func cloneCredentials(credentials map[string]any) map[string]any {
+	return shallowCopyMap(credentials)
+}
+
 func persistAccountCredentials(ctx context.Context, repo AccountRepository, account *Account, credentials map[string]any) error {
 	if repo == nil || account == nil {
 		return nil

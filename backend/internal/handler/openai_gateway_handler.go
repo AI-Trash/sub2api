@@ -1412,8 +1412,11 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		)
 		return
 	}
+	closeImmediately := true
 	defer func() {
-		_ = wsConn.CloseNow()
+		if closeImmediately {
+			_ = wsConn.CloseNow()
+		}
 	}()
 	wsConn.SetReadLimit(service.ResolveOpenAIWSClientReadLimitBytes(h.cfg))
 
@@ -1909,7 +1912,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		reqLog.Info("openai.websocket_ingress_closed", zap.Int64("account_id", account.ID))
 		return
 	}
-
+	closeImmediately = false
+	_ = wsConn.Close(coderws.StatusNormalClosure, "")
+	reqLog.Info("openai.websocket_ingress_closed")
 }
 
 func (h *OpenAIGatewayHandler) recoverResponsesPanic(c *gin.Context, streamStarted *bool) {

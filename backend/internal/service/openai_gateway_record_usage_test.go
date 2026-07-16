@@ -1286,6 +1286,12 @@ func TestExtractOpenAIServiceTierFromBody(t *testing.T) {
 	require.Nil(t, extractOpenAIServiceTierFromBody(nil))
 }
 
+func TestExtractOpenAIServiceTierFromMaybeMutatedBodyDistinguishesMissingAndInvalid(t *testing.T) {
+	require.Nil(t, extractOpenAIServiceTierFromMaybeMutatedBody([]byte(`{"model":"gpt-5.5"}`)))
+	require.Nil(t, extractOpenAIServiceTierFromMaybeMutatedBody([]byte(`{"service_tier":"turbo"}`)))
+	require.Equal(t, "priority", *extractOpenAIServiceTierFromMaybeMutatedBody([]byte(`{"service_tier":"priority"}`)))
+}
+
 func TestOpenAIGatewayServiceRecordUsage_UsesRequestedModelAndUpstreamModelMetadataFields(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	userRepo := &openAIRecordUsageUserRepoStub{}

@@ -342,6 +342,27 @@
                 </button>
               </div>
             </div>
+
+            <div class="mt-4 border-t border-gray-200 pt-4 dark:border-dark-600">
+              <label class="input-label">{{ t('admin.accounts.modelBlacklist') }}</label>
+              <div class="mb-3 rounded-lg bg-red-50 p-3 dark:bg-red-900/20">
+                <p class="text-xs text-red-700 dark:text-red-400">
+                  {{ t('admin.accounts.selectBlockedModels') }}
+                </p>
+              </div>
+
+              <ModelWhitelistSelector
+                v-model="blacklistedModels"
+                :platforms="selectedPlatforms"
+              />
+
+              <p class="text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.blockedModels', { count: blacklistedModels.length }) }}
+                <span v-if="blacklistedModels.length === 0">{{
+                  t('admin.accounts.blocksNoModels')
+                }}</span>
+              </p>
+            </div>
           </template>
         </div>
       </div>
@@ -658,7 +679,7 @@
             v-model.number="priority"
             id="bulk-edit-priority"
             type="number"
-            min="1"
+            min="0"
             :disabled="!enablePriority"
             class="input"
             :class="!enablePriority && 'cursor-not-allowed opacity-50'"
@@ -1210,6 +1231,7 @@ import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.
 import Icon from '@/components/icons/Icon.vue'
 import {
   buildModelMappingObject as buildModelMappingPayload,
+  buildModelBlacklistArray,
   getPresetMappingsByPlatform
 } from '@/composables/useModelWhitelist'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
@@ -1363,6 +1385,7 @@ const pendingUpdatesForConfirm = ref<Record<string, unknown> | null>(null)
 const baseUrl = ref('')
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
+const blacklistedModels = ref<string[]>([])
 const modelMappings = ref<ModelMapping[]>([])
 const selectedErrorCodes = ref<number[]>([])
 const customErrorCodeInput = ref<number | null>(null)
@@ -1519,6 +1542,10 @@ const buildModelMappingObject = (): Record<string, string> | null => {
   )
 }
 
+const buildModelBlacklist = (): string[] | null => {
+  return buildModelBlacklistArray(blacklistedModels.value)
+}
+
 const buildOpenAICompactModelMapping = (): Record<string, string> | null => {
   return buildModelMappingPayload('mapping', [], openAICompactModelMappings.value)
 }
@@ -1598,6 +1625,9 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
       credentials.model_mapping = modelMapping ?? {}
       credentialsChanged = true
     }
+    // 空黑名单表示清除既有黑名单。
+    credentials.model_blacklist = buildModelBlacklist() ?? []
+    credentialsChanged = true
   }
 
   if (enableCustomErrorCodes.value) {
@@ -1897,6 +1927,7 @@ watch(
       openaiPassthroughEnabled.value = false
       modelRestrictionMode.value = 'whitelist'
       allowedModels.value = []
+      blacklistedModels.value = []
       modelMappings.value = []
       selectedErrorCodes.value = []
       customErrorCodeInput.value = null

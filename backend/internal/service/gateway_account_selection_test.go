@@ -204,3 +204,35 @@ func TestSelectByLRU_TiePreferOAuth(t *testing.T) {
 		require.Equal(t, int64(2), result.account.ID)
 	}
 }
+
+// --- sortPreferredAccountsByLRU ---
+
+func TestSortPreferredAccountsByLRU_NilFirst(t *testing.T) {
+	now := time.Now()
+	accounts := []*Account{
+		{ID: 1, LastUsedAt: testTimePtr(now)},
+		{ID: 2, LastUsedAt: nil},
+		{ID: 3, LastUsedAt: testTimePtr(now.Add(-2 * time.Hour))},
+	}
+	sortPreferredAccountsByLRU(accounts)
+	require.Equal(t, int64(2), accounts[0].ID, "nil LastUsedAt 排最前")
+	require.Equal(t, int64(3), accounts[1].ID, "更早使用的次之")
+	require.Equal(t, int64(1), accounts[2].ID)
+}
+
+func TestSortPreferredAccountsByLRU_AllNil(t *testing.T) {
+	accounts := []*Account{
+		{ID: 5, LastUsedAt: nil},
+		{ID: 2, LastUsedAt: nil},
+		{ID: 9, LastUsedAt: nil},
+	}
+	sortPreferredAccountsByLRU(accounts)
+	require.Equal(t, int64(2), accounts[0].ID, "全 nil 时按 ID 升序")
+	require.Equal(t, int64(5), accounts[1].ID)
+	require.Equal(t, int64(9), accounts[2].ID)
+}
+
+func TestSortPreferredAccountsByLRU_Empty(t *testing.T) {
+	sortPreferredAccountsByLRU(nil)
+	sortPreferredAccountsByLRU([]*Account{})
+}

@@ -1068,6 +1068,22 @@
               + {{ preset.label }}
             </button>
           </div>
+
+          <div class="mt-4 border-t border-gray-200 pt-4 dark:border-dark-600">
+            <label class="input-label">{{ t('admin.accounts.modelBlacklist') }}</label>
+            <div class="mb-3 rounded-lg bg-red-50 p-3 dark:bg-red-900/20">
+              <p class="text-xs text-red-700 dark:text-red-400">
+                {{ t('admin.accounts.selectBlockedModels') }}
+              </p>
+            </div>
+            <ModelWhitelistSelector v-model="blacklistedModels" platform="antigravity" />
+            <p class="text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.blockedModels', { count: blacklistedModels.length }) }}
+              <span v-if="blacklistedModels.length === 0">{{
+                t('admin.accounts.blocksNoModels')
+              }}</span>
+            </p>
+          </div>
         </div>
       </div>
 
@@ -1330,6 +1346,22 @@
                   + {{ preset.label }}
                 </button>
               </div>
+            </div>
+
+            <div class="mt-4 border-t border-gray-200 pt-4 dark:border-dark-600">
+              <label class="input-label">{{ t('admin.accounts.modelBlacklist') }}</label>
+              <div class="mb-3 rounded-lg bg-red-50 p-3 dark:bg-red-900/20">
+                <p class="text-xs text-red-700 dark:text-red-400">
+                  {{ t('admin.accounts.selectBlockedModels') }}
+                </p>
+              </div>
+              <ModelWhitelistSelector v-model="blacklistedModels" :platform="form.platform" />
+              <p class="text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.blockedModels', { count: blacklistedModels.length }) }}
+                <span v-if="blacklistedModels.length === 0">{{
+                  t('admin.accounts.blocksNoModels')
+                }}</span>
+              </p>
             </div>
           </template>
         </div>
@@ -1733,6 +1765,22 @@
               </button>
             </div>
           </div>
+
+          <div class="mt-4 border-t border-gray-200 pt-4 dark:border-dark-600">
+            <label class="input-label">{{ t('admin.accounts.modelBlacklist') }}</label>
+            <div class="mb-3 rounded-lg bg-red-50 p-3 dark:bg-red-900/20">
+              <p class="text-xs text-red-700 dark:text-red-400">
+                {{ t('admin.accounts.selectBlockedModels') }}
+              </p>
+            </div>
+            <ModelWhitelistSelector v-model="blacklistedModels" platform="anthropic" />
+            <p class="text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.blockedModels', { count: blacklistedModels.length }) }}
+              <span v-if="blacklistedModels.length === 0">{{
+                t('admin.accounts.blocksNoModels')
+              }}</span>
+            </p>
+          </div>
         </div>
 
         <!-- Pool Mode Section for Bedrock -->
@@ -2120,6 +2168,22 @@
                 + {{ preset.label }}
               </button>
             </div>
+          </div>
+
+          <div class="mt-4 border-t border-gray-200 pt-4 dark:border-dark-600">
+            <label class="input-label">{{ t('admin.accounts.modelBlacklist') }}</label>
+            <div class="mb-3 rounded-lg bg-red-50 p-3 dark:bg-red-900/20">
+              <p class="text-xs text-red-700 dark:text-red-400">
+                {{ t('admin.accounts.selectBlockedModels') }}
+              </p>
+            </div>
+            <ModelWhitelistSelector v-model="blacklistedModels" :platform="form.platform" />
+            <p class="text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.blockedModels', { count: blacklistedModels.length }) }}
+              <span v-if="blacklistedModels.length === 0">{{
+                t('admin.accounts.blocksNoModels')
+              }}</span>
+            </p>
           </div>
         </template>
       </div>
@@ -2710,7 +2774,7 @@
           <input
             v-model.number="form.priority"
             type="number"
-            min="1"
+            min="0"
             class="input"
             data-tour="account-form-priority"
           />
@@ -3482,6 +3546,7 @@ import {
   getModelsByPlatform,
   commonErrorCodes,
   buildModelMappingObject,
+  buildModelBlacklistArray,
   fetchAntigravityDefaultMappings,
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
@@ -3685,6 +3750,7 @@ const modelMappings = ref<ModelMapping[]>([])
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
+const blacklistedModels = ref<string[]>([])
 const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
 const DEFAULT_POOL_MODE_RETRY_STATUS_CODES = [401, 403, 429]
@@ -3818,6 +3884,22 @@ const getAntigravityModelMappingKey = createStableObjectKeyResolver<ModelMapping
 const getTempUnschedRuleKey = createStableObjectKeyResolver<TempUnschedRuleForm>('create-temp-unsched-rule')
 const geminiOAuthType = ref<'code_assist' | 'google_one' | 'ai_studio'>('google_one')
 const geminiAIStudioOAuthEnabled = ref(false)
+
+const buildModelBlacklist = (): string[] | null => {
+  return buildModelBlacklistArray(blacklistedModels.value)
+}
+
+const applyModelRestrictionToCredentials = (credentials: Record<string, unknown>) => {
+  const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+  if (modelMapping) {
+    credentials.model_mapping = modelMapping
+  }
+  const modelBlacklist = buildModelBlacklist()
+  if (modelBlacklist) {
+    credentials.model_blacklist = modelBlacklist
+  }
+}
+
 const openAICompactModeOptions = computed(() => [
   { value: 'auto', label: t('admin.accounts.openai.compactModeAuto') },
   { value: 'force_on', label: t('admin.accounts.openai.compactModeForceOn') },
@@ -4157,6 +4239,7 @@ watch(
             : 'https://api.anthropic.com'
     // Clear model-related settings
     allowedModels.value = []
+    blacklistedModels.value = []
     modelMappings.value = []
     // Antigravity: 默认使用映射模式并填充默认映射
     if (newPlatform === 'antigravity') {
@@ -4599,6 +4682,7 @@ const resetForm = () => {
   openAICompactModelMappings.value = []
   modelRestrictionMode.value = 'whitelist'
   allowedModels.value = [...claudeModels] // Default fill related models
+  blacklistedModels.value = []
 
   antigravityModelRestrictionMode.value = 'mapping'
   antigravityWhitelistModels.value = []
@@ -4920,13 +5004,7 @@ const handleSubmit = async () => {
       credentials.aws_force_global = 'true'
     }
 
-    // Model mapping
-    const modelMapping = buildModelMappingObject(
-      modelRestrictionMode.value, allowedModels.value, modelMappings.value
-    )
-    if (modelMapping) {
-      credentials.model_mapping = modelMapping
-    }
+    applyModelRestrictionToCredentials(credentials)
 
     // Pool mode
     if (poolModeEnabled.value) {
@@ -4973,6 +5051,10 @@ const handleSubmit = async () => {
     )
     if (antigravityModelMapping) {
       credentials.model_mapping = antigravityModelMapping
+    }
+    const modelBlacklist = buildModelBlacklist()
+    if (modelBlacklist) {
+      credentials.model_blacklist = modelBlacklist
     }
 
     applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
@@ -5032,10 +5114,7 @@ const handleSubmit = async () => {
 
   // Add model mapping if configured（OpenAI 开启自动透传时不应用）
   if (!isOpenAIModelRestrictionDisabled.value) {
-    const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
-    if (modelMapping) {
-      credentials.model_mapping = modelMapping
-    }
+    applyModelRestrictionToCredentials(credentials)
   }
   if (form.platform === 'openai') {
     applyOpenAIEndpointCapabilities(credentials)
@@ -5411,10 +5490,7 @@ const handleOpenAIExchange = async (authCode: string) => {
 
     // Add model mapping for OpenAI OAuth accounts（透传模式下不应用）
     if (shouldCreateOpenAI && !isOpenAIModelRestrictionDisabled.value) {
-      const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
-      if (modelMapping) {
-        credentials.model_mapping = modelMapping
-      }
+      applyModelRestrictionToCredentials(credentials)
     }
     if (shouldCreateOpenAI) {
       const compactModelMapping = buildOpenAICompactModelMapping()
@@ -5693,10 +5769,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
 
         // Add model mapping for OpenAI OAuth accounts（透传模式下不应用）
         if (shouldCreateOpenAI && !isOpenAIModelRestrictionDisabled.value) {
-          const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
-          if (modelMapping) {
-            credentials.model_mapping = modelMapping
-          }
+          applyModelRestrictionToCredentials(credentials)
         }
         if (shouldCreateOpenAI) {
           const compactModelMapping = buildOpenAICompactModelMapping()
@@ -5930,6 +6003,10 @@ const handleAntigravityExchange = async (authCode: string) => {
 		)
 		if (antigravityModelMapping) {
 			credentials.model_mapping = antigravityModelMapping
+		}
+		const modelBlacklist = buildModelBlacklist()
+		if (modelBlacklist) {
+			credentials.model_blacklist = modelBlacklist
 		}
 		const extra = buildAntigravityExtra()
 		await createAccountAndFinish('antigravity', 'oauth', credentials, extra)

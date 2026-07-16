@@ -234,6 +234,9 @@ func isOpenAICompatibleAccountEligibleForRequest(ctx context.Context, account *A
 	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
 		return false
 	}
+	if openAIAccountUpstreamModelBlacklisted(account, requestedModel, requireCompact) {
+		return false
+	}
 	if !account.SupportsOpenAIEndpointCapability(requiredCapability) {
 		return false
 	}
@@ -567,7 +570,15 @@ func resolveOpenAIAccountUpstreamModelForRequest(account *Account, requestedMode
 	if requireCompact {
 		return resolveOpenAICompactForwardModel(account, upstreamModel)
 	}
-	return upstreamModel
+	return normalizeOpenAIModelForUpstream(account, upstreamModel)
+}
+
+func openAIAccountUpstreamModelBlacklisted(account *Account, requestedModel string, requireCompact bool) bool {
+	if account == nil || strings.TrimSpace(requestedModel) == "" {
+		return false
+	}
+	upstreamModel := resolveOpenAIAccountUpstreamModelForRequest(account, requestedModel, requireCompact)
+	return upstreamModel != "" && upstreamModel != strings.TrimSpace(requestedModel) && account.IsModelBlacklisted(upstreamModel)
 }
 
 func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.Context, groupID *int64, platform string, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, stickyAccountID int64, requiredCapability OpenAIEndpointCapability, preferLowUpstreamRate bool) (*Account, error) {

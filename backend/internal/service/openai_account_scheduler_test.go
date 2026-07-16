@@ -410,7 +410,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_DefaultDisabledUsesLega
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
-			Priority:    0,
+			Priority:    1,
 		},
 	}
 	cfg := &config.Config{}
@@ -1768,6 +1768,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionSticky(t *testin
 		Status:      StatusActive,
 		Schedulable: true,
 		Concurrency: 1,
+		Priority:    1,
 		GroupIDs:    []int64{groupID},
 	}
 	cache := &schedulerTestGatewayCache{
@@ -1816,7 +1817,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyBusyKeepsS
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
-			Priority:    0,
+			Priority:    2,
 			GroupIDs:    []int64{groupID},
 		},
 		{
@@ -1900,7 +1901,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyEscapeByTT
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
-			Priority:    0,
+			Priority:    1,
 			GroupIDs:    []int64{groupID},
 		},
 		{
@@ -1910,7 +1911,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyEscapeByTT
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
-			Priority:    1,
+			Priority:    2,
 			GroupIDs:    []int64{groupID},
 		},
 	}
@@ -1966,8 +1967,8 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyEscapeByEr
 	ctx := context.Background()
 	groupID := int64(10102)
 	accounts := []Account{
-		{ID: 21201, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, GroupIDs: []int64{groupID}},
-		{ID: 21202, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1, GroupIDs: []int64{groupID}},
+		{ID: 21201, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1, GroupIDs: []int64{groupID}},
+		{ID: 21202, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 2, GroupIDs: []int64{groupID}},
 	}
 	cache := &schedulerTestGatewayCache{sessionBindings: map[string]int64{"openai:session_hash_sticky_error_rate": 21201}}
 	cfg := &config.Config{}
@@ -2382,6 +2383,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionSticky_ForceHTTP
 		Status:      StatusActive,
 		Schedulable: true,
 		Concurrency: 1,
+		Priority:    1,
 		GroupIDs:    []int64{groupID},
 		Extra: map[string]any{
 			"openai_ws_force_http": true,
@@ -2506,7 +2508,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_ClearsStickyAccountOuts
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
-			Priority:    0,
+			Priority:    1,
 		},
 		{
 			ID:          2402,
@@ -2607,7 +2609,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceTopKFallback
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
-			Priority:    0,
+			Priority:    1,
 		},
 		{
 			ID:          3002,
@@ -2616,7 +2618,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceTopKFallback
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 1,
-			Priority:    0,
+			Priority:    1,
 		},
 		{
 			ID:          3003,
@@ -2769,6 +2771,7 @@ func TestOpenAIGatewayService_OpenAIAccountSchedulerMetrics(t *testing.T) {
 		Status:      StatusActive,
 		Schedulable: true,
 		Concurrency: 1,
+		Priority:    1,
 		GroupIDs:    []int64{groupID},
 	}
 	cache := &schedulerTestGatewayCache{
@@ -2933,7 +2936,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceDistributesA
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 3,
-			Priority:    0,
+			Priority:    1,
 		},
 		{
 			ID:          5102,
@@ -2942,7 +2945,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceDistributesA
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 3,
-			Priority:    0,
+			Priority:    1,
 		},
 		{
 			ID:          5103,
@@ -2951,7 +2954,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceDistributesA
 			Status:      StatusActive,
 			Schedulable: true,
 			Concurrency: 3,
-			Priority:    0,
+			Priority:    1,
 		},
 	}
 	cfg := &config.Config{}
@@ -3188,6 +3191,39 @@ func TestDefaultOpenAIAccountScheduler_IsAccountTransportCompatible_Branches(t *
 
 	account.Extra["openai_apikey_responses_websockets_v2_mode"] = OpenAIWSIngressModeOff
 	require.False(t, scheduler.isAccountTransportCompatible(account, OpenAIUpstreamTransportResponsesWebsocketV2Ingress))
+}
+
+// --- sortOpenAIAccountsByLRU ---
+
+func TestSortOpenAIAccountsByLRU_NilFirst(t *testing.T) {
+	now := time.Now()
+	earlier := now.Add(-2 * time.Hour)
+	accounts := []*Account{
+		{ID: 1, LastUsedAt: &now},
+		{ID: 2, LastUsedAt: nil},
+		{ID: 3, LastUsedAt: &earlier},
+	}
+	sortOpenAIAccountsByLRU(accounts)
+	require.Equal(t, int64(2), accounts[0].ID)
+	require.Equal(t, int64(3), accounts[1].ID)
+	require.Equal(t, int64(1), accounts[2].ID)
+}
+
+func TestSortOpenAIAccountsByLRU_AllNil(t *testing.T) {
+	accounts := []*Account{
+		{ID: 5, LastUsedAt: nil},
+		{ID: 2, LastUsedAt: nil},
+		{ID: 9, LastUsedAt: nil},
+	}
+	sortOpenAIAccountsByLRU(accounts)
+	require.Equal(t, int64(2), accounts[0].ID)
+	require.Equal(t, int64(5), accounts[1].ID)
+	require.Equal(t, int64(9), accounts[2].ID)
+}
+
+func TestSortOpenAIAccountsByLRU_Empty(t *testing.T) {
+	sortOpenAIAccountsByLRU(nil)
+	sortOpenAIAccountsByLRU([]*Account{})
 }
 
 func int64PtrForTest(v int64) *int64 {

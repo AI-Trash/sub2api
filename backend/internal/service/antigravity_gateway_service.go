@@ -262,6 +262,9 @@ func mapAntigravityModel(account *Account, requestedModel string) string {
 		return ""
 	}
 	requestedModel = strings.TrimPrefix(requestedModel, "models/")
+	if account.IsModelBlacklisted(requestedModel) {
+		return ""
+	}
 
 	// 获取映射表（未配置时自动使用 DefaultAntigravityModelMapping）
 	mapping := account.GetModelMapping()
@@ -274,6 +277,9 @@ func mapAntigravityModel(account *Account, requestedModel string) string {
 
 	// 判断是否映射成功（mapped != requestedModel 说明找到了映射规则）
 	if mapped != requestedModel {
+		if account.IsModelBlacklisted(mapped) {
+			return ""
+		}
 		return mapped
 	}
 

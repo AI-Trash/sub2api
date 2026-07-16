@@ -299,6 +299,131 @@ func TestIsOpenAITransientProcessingError(t *testing.T) {
 	))
 }
 
+func TestIsOpenAICodexChatGPTModelUnsupportedError(t *testing.T) {
+	body := []byte(`{"detail":"The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account."}`)
+	require.True(t, isOpenAICodexChatGPTModelUnsupportedError(
+		http.StatusBadRequest,
+		"",
+		body,
+	))
+
+	require.True(t, isOpenAICodexChatGPTModelUnsupportedError(
+		http.StatusBadRequest,
+		"The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account.",
+		nil,
+	))
+
+	require.False(t, isOpenAICodexChatGPTModelUnsupportedError(
+		http.StatusBadRequest,
+		"Model gpt-5.5 was not found.",
+		[]byte(`{"detail":"Model gpt-5.5 was not found."}`),
+	))
+
+	require.False(t, isOpenAICodexChatGPTModelUnsupportedError(
+		http.StatusForbidden,
+		"The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account.",
+		body,
+	))
+}
+
+func TestExtractOpenAICodexChatGPTUnsupportedModel(t *testing.T) {
+	body := []byte(`{"detail":"The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account."}`)
+	require.Equal(t, "gpt-5.5", extractOpenAICodexChatGPTUnsupportedModel("", body))
+	require.Equal(t, "gpt-5.4", extractOpenAICodexChatGPTUnsupportedModel(
+		"The 'gpt-5.4' model is not supported when using Codex with a ChatGPT account.",
+		nil,
+	))
+	require.Empty(t, extractOpenAICodexChatGPTUnsupportedModel("Model gpt-5.5 was not found.", nil))
+}
+
+type codexUnsupportedBlacklistRepo struct {
+	AccountRepository
+	account                  *Account
+	updatedCredentials       map[string]any
+	updateCredentialsCallCnt int
+}
+
+func (r *codexUnsupportedBlacklistRepo) GetByID(ctx context.Context, id int64) (*Account, error) {
+	if r.account == nil || r.account.ID != id {
+		return nil, ErrAccountNotFound
+	}
+	copied := *r.account
+	copied.Credentials = cloneCredentials(r.account.Credentials)
+	return &copied, nil
+}
+
+func (r *codexUnsupportedBlacklistRepo) UpdateCredentials(ctx context.Context, id int64, credentials map[string]any) error {
+	if r.account == nil || r.account.ID != id {
+		return ErrAccountNotFound
+	}
+	r.updateCredentialsCallCnt++
+	r.updatedCredentials = cloneCredentials(credentials)
+	r.account.Credentials = cloneCredentials(credentials)
+	return nil
+}
+
+func TestOpenAIGatewayService_HandleFailoverSideEffects_BlacklistsUnsupportedCodexModel(t *testing.T) {
+	body := []byte(`{"detail":"The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account."}`)
+	repo := &codexUnsupportedBlacklistRepo{
+		account: &Account{
+			ID:          42,
+			Name:        "chatgpt-plus",
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Schedulable: true,
+			Credentials: map[string]any{
+				"model_blacklist": []any{"gpt-5"},
+			},
+		},
+	}
+	svc := &OpenAIGatewayService{accountRepo: repo}
+	resp := &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header:     http.Header{},
+		Body:       io.NopCloser(bytes.NewReader(body)),
+	}
+
+	svc.handleFailoverSideEffects(context.Background(), resp, repo.account, body, "fallback-model")
+
+	require.Equal(t, 1, repo.updateCredentialsCallCnt)
+	require.Equal(t, []string{"gpt-5", "gpt-5.5"}, stringSliceFromRaw(repo.updatedCredentials["model_blacklist"]))
+	require.True(t, repo.account.IsModelBlacklisted("gpt-5.5"))
+}
+
+func TestOpenAIAccountEligibilityRejectsBlacklistedMappedModel(t *testing.T) {
+	t.Run("account mapping target", func(t *testing.T) {
+		account := &Account{
+			ID:          42,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Schedulable: true,
+			Credentials: map[string]any{
+				"model_mapping":   map[string]any{"codex-latest": "gpt-5.5"},
+				"model_blacklist": []any{"gpt-5.5"},
+			},
+		}
+
+		require.False(t, isOpenAICompatibleAccountEligibleForRequest(context.Background(), account, PlatformOpenAI, "codex-latest", false, OpenAIEndpointCapabilityChatCompletions))
+	})
+
+	t.Run("oauth-normalized upstream model", func(t *testing.T) {
+		account := &Account{
+			ID:          43,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Schedulable: true,
+			Credentials: map[string]any{
+				"model_blacklist": []any{"gpt-5.3-codex"},
+			},
+		}
+
+		require.False(t, isOpenAICompatibleAccountEligibleForRequest(context.Background(), account, PlatformOpenAI, "codex-latest", false, OpenAIEndpointCapabilityChatCompletions))
+	})
+}
+
 func TestIsOpenAIContextWindowError(t *testing.T) {
 	require.True(t, isOpenAIContextWindowError(
 		"",
@@ -422,6 +547,56 @@ func TestOpenAIGatewayService_Forward_TransientProcessingErrorTriggersFailover(t
 	require.Equal(t, http.StatusBadRequest, failoverErr.StatusCode)
 	require.Contains(t, string(failoverErr.ResponseBody), "An error occurred while processing your request")
 	require.False(t, c.Writer.Written(), "service 层应返回 failover 错误给上层换号，而不是直接向客户端写响应")
+}
+
+func TestOpenAIGatewayService_Forward_CodexChatGPTModelUnsupportedTriggersFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
+	c.Request.Header.Set("User-Agent", "codex_cli_rs/0.1.0")
+	c.Request.Header.Set("Content-Type", "application/json")
+	upstreamBody := `{"detail":"The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account."}`
+	upstream := &httpUpstreamRecorder{
+		resp: &http.Response{
+			StatusCode: http.StatusBadRequest,
+			Header: http.Header{
+				"Content-Type": []string{"application/json"},
+				"x-request-id": []string{"rid-codex-chatgpt-model-unsupported"},
+			},
+			Body: io.NopCloser(strings.NewReader(upstreamBody)),
+		},
+	}
+	svc := &OpenAIGatewayService{
+		cfg: &config.Config{
+			Gateway: config.GatewayConfig{ForceCodexCLI: false},
+		},
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID:             107,
+		Name:           "chatgpt oauth",
+		Platform:       PlatformOpenAI,
+		Type:           AccountTypeAPIKey,
+		Concurrency:    1,
+		Credentials:    map[string]any{"api_key": "sk-test"},
+		Status:         StatusActive,
+		Schedulable:    true,
+		RateMultiplier: f64p(1),
+	}
+	body := []byte(`{"model":"gpt-5.5","stream":false,"input":[{"type":"text","text":"hello"}]}`)
+
+	_, err := svc.Forward(context.Background(), c, account, body)
+	require.Error(t, err)
+
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusBadRequest, failoverErr.StatusCode)
+	require.Contains(t, string(failoverErr.ResponseBody), "not supported when using Codex with a ChatGPT account")
+	require.False(t, failoverErr.RetryableOnSameAccount, "该错误应直接切换账号，而不是同账号重试")
+	require.False(t, c.Writer.Written(), "service 层应返回 failover 错误给上层换号，而不是直接向客户端写响应")
+
 }
 
 func TestOpenAIGatewayService_Forward_ModelCapacityErrorTriggersFailoverAndSameAccountRetry(t *testing.T) {

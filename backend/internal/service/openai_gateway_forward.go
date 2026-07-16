@@ -445,10 +445,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 
 	if rawTier := requestView.ServiceTier; rawTier != "" {
 		if normTier := normalizedOpenAIServiceTierValue(rawTier); normTier != "" {
-			action, errMsg := s.evaluateOpenAIFastPolicy(ctx, account, upstreamModel, normTier)
-			switch action {
+			decision := s.evaluateOpenAIFastPolicyDecision(ctx, account, upstreamModel, normTier)
+			switch decision.Action {
 			case BetaPolicyActionBlock:
-				msg := errMsg
+				msg := decision.ErrorMessage
 				if msg == "" {
 					msg = fmt.Sprintf("openai service_tier=%s is not allowed for model %s", normTier, upstreamModel)
 				}
@@ -460,6 +460,11 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			case OpenAIFastPolicyActionForcePriority:
 				if rawTier != OpenAIFastTierPriority {
 					markPatchSet("service_tier", OpenAIFastTierPriority)
+				}
+			case BetaPolicyActionSet:
+				targetTier := normalizedOpenAIServiceTierValue(decision.TargetServiceTier)
+				if targetTier != "" && targetTier != rawTier {
+					markPatchSet("service_tier", targetTier)
 				}
 			default:
 				if normTier != rawTier {

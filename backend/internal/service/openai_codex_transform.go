@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	"github.com/tidwall/gjson"
 )
 
 var codexModelMap = map[string]string{
@@ -651,6 +652,42 @@ func isOpenAIImageGenerationToolMap(tool map[string]any) bool {
 func isImageGenNamespaceToolMap(tool map[string]any) bool {
 	return strings.TrimSpace(firstNonEmptyString(tool["type"])) == "namespace" &&
 		isOpenAIImageGenNamespaceName(firstNonEmptyString(tool["name"]))
+}
+
+func hasOpenAIImageGenerationToolJSON(body []byte) bool {
+	if len(body) == 0 || !gjson.ValidBytes(body) {
+		return false
+	}
+	tools := gjson.GetBytes(body, "tools")
+	if tools.IsArray() {
+		for _, tool := range tools.Array() {
+			if isOpenAIImageGenerationType(strings.TrimSpace(tool.Get("type").String())) {
+				return true
+			}
+			if strings.TrimSpace(tool.Get("type").String()) == "namespace" &&
+				isOpenAIImageGenNamespaceName(strings.TrimSpace(tool.Get("name").String())) {
+				return true
+			}
+		}
+	}
+	input := gjson.GetBytes(body, "input")
+	if input.IsArray() {
+		for _, item := range input.Array() {
+			if strings.TrimSpace(item.Get("type").String()) != "additional_tools" {
+				continue
+			}
+			for _, tool := range item.Get("tools").Array() {
+				if isOpenAIImageGenerationType(strings.TrimSpace(tool.Get("type").String())) {
+					return true
+				}
+				if strings.TrimSpace(tool.Get("type").String()) == "namespace" &&
+					isOpenAIImageGenNamespaceName(strings.TrimSpace(tool.Get("name").String())) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func inputContainsImageGenerationTool(rawInput any) bool {

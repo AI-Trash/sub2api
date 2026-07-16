@@ -31,6 +31,7 @@ func TestNormalizeInboundEndpoint(t *testing.T) {
 		{"/v1/responses/compact/detail", EndpointResponsesCompact},
 		{"/v1/images/generations", EndpointImagesGenerations},
 		{"/v1/images/edits", EndpointImagesEdits},
+		{"/v1/images/variations", EndpointImagesVariations},
 		{"/v1/images/tasks/imgtask_123", EndpointImageTasks},
 		{"/v1/videos/generations", EndpointVideosGenerations},
 		{"/v1/videos/req_123", EndpointVideos},
@@ -41,6 +42,7 @@ func TestNormalizeInboundEndpoint(t *testing.T) {
 		{"/openai/v1/responses", EndpointResponses},
 		{"/openai/v1/images/generations", EndpointImagesGenerations},
 		{"/openai/v1/images/edits", EndpointImagesEdits},
+		{"/openai/v1/images/variations", EndpointImagesVariations},
 		{"/antigravity/v1beta/models/gemini:generateContent", EndpointGeminiModels},
 
 		// Prefixed paths — "/responses/compact" is its OWN distinct
@@ -127,6 +129,7 @@ func TestDeriveUpstreamEndpoint(t *testing.T) {
 		{"openai alpha search", EndpointAlphaSearch, "/backend-api/codex/alpha/search", service.PlatformOpenAI, EndpointAlphaSearch},
 		{"openai image generations", EndpointImagesGenerations, "/v1/images/generations", service.PlatformOpenAI, EndpointImagesGenerations},
 		{"openai image edits", EndpointImagesEdits, "/openai/v1/images/edits", service.PlatformOpenAI, EndpointImagesEdits},
+		{"openai image variations", EndpointImagesVariations, "/openai/v1/images/variations", service.PlatformOpenAI, EndpointImagesVariations},
 		{"grok chat defaults to responses without runtime result", EndpointChatCompletions, "/v1/chat/completions", service.PlatformGrok, EndpointResponses},
 		{"grok responses", EndpointResponses, "/v1/responses", service.PlatformGrok, EndpointResponses},
 		{"grok video generations", EndpointVideosGenerations, "/v1/videos/generations", service.PlatformGrok, EndpointVideosGenerations},

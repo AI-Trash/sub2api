@@ -256,6 +256,22 @@
                 </button>
               </div>
             </div>
+
+            <div class="mt-4 border-t border-gray-200 pt-4 dark:border-dark-600">
+              <label class="input-label">{{ t('admin.accounts.modelBlacklist') }}</label>
+              <div class="mb-3 rounded-lg bg-red-50 p-3 dark:bg-red-900/20">
+                <p class="text-xs text-red-700 dark:text-red-400">
+                  {{ t('admin.accounts.selectBlockedModels') }}
+                </p>
+              </div>
+              <ModelWhitelistSelector v-model="blacklistedModels" :platform="account?.platform || 'anthropic'" />
+              <p class="text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.blockedModels', { count: blacklistedModels.length }) }}
+                <span v-if="blacklistedModels.length === 0">{{
+                  t('admin.accounts.blocksNoModels')
+                }}</span>
+              </p>
+            </div>
           </template>
         </div>
 
@@ -636,6 +652,22 @@
                 + {{ preset.label }}
               </button>
             </div>
+          </div>
+
+          <div class="mt-4 border-t border-gray-200 pt-4 dark:border-dark-600">
+            <label class="input-label">{{ t('admin.accounts.modelBlacklist') }}</label>
+            <div class="mb-3 rounded-lg bg-red-50 p-3 dark:bg-red-900/20">
+              <p class="text-xs text-red-700 dark:text-red-400">
+                {{ t('admin.accounts.selectBlockedModels') }}
+              </p>
+            </div>
+            <ModelWhitelistSelector v-model="blacklistedModels" :platform="account?.platform || 'openai'" />
+            <p class="text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.blockedModels', { count: blacklistedModels.length }) }}
+              <span v-if="blacklistedModels.length === 0">{{
+                t('admin.accounts.blocksNoModels')
+              }}</span>
+            </p>
           </div>
         </template>
       </div>
@@ -1018,6 +1050,22 @@
               </button>
             </div>
           </div>
+
+          <div class="mt-4 border-t border-gray-200 pt-4 dark:border-dark-600">
+            <label class="input-label">{{ t('admin.accounts.modelBlacklist') }}</label>
+            <div class="mb-3 rounded-lg bg-red-50 p-3 dark:bg-red-900/20">
+              <p class="text-xs text-red-700 dark:text-red-400">
+                {{ t('admin.accounts.selectBlockedModels') }}
+              </p>
+            </div>
+            <ModelWhitelistSelector v-model="blacklistedModels" platform="anthropic" />
+            <p class="text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.blockedModels', { count: blacklistedModels.length }) }}
+              <span v-if="blacklistedModels.length === 0">{{
+                t('admin.accounts.blocksNoModels')
+              }}</span>
+            </p>
+          </div>
         </div>
 
         <!-- Pool Mode Section for Bedrock -->
@@ -1197,6 +1245,22 @@
             >
               + {{ preset.label }}
             </button>
+          </div>
+
+          <div class="mt-4 border-t border-gray-200 pt-4 dark:border-dark-600">
+            <label class="input-label">{{ t('admin.accounts.modelBlacklist') }}</label>
+            <div class="mb-3 rounded-lg bg-red-50 p-3 dark:bg-red-900/20">
+              <p class="text-xs text-red-700 dark:text-red-400">
+                {{ t('admin.accounts.selectBlockedModels') }}
+              </p>
+            </div>
+            <ModelWhitelistSelector v-model="blacklistedModels" platform="antigravity" />
+            <p class="text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.blockedModels', { count: blacklistedModels.length }) }}
+              <span v-if="blacklistedModels.length === 0">{{
+                t('admin.accounts.blocksNoModels')
+              }}</span>
+            </p>
           </div>
         </div>
       </div>
@@ -1407,7 +1471,7 @@
           <input
             v-model.number="form.priority"
             type="number"
-            min="1"
+            min="0"
             class="input"
             data-tour="account-form-priority"
           />
@@ -2617,6 +2681,7 @@ import {
   getPresetMappingsByPlatform,
   commonErrorCodes,
   buildModelMappingObject,
+  buildModelBlacklistArray,
   splitModelMappingObject,
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
@@ -2689,6 +2754,7 @@ const modelMappings = ref<ModelMapping[]>([])
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
+const blacklistedModels = ref<string[]>([])
 const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
 const DEFAULT_POOL_MODE_RETRY_STATUS_CODES = [401, 403, 429]
@@ -2761,6 +2827,39 @@ const getModelMappingKey = createStableObjectKeyResolver<ModelMapping>('edit-mod
 const getOpenAICompactModelMappingKey = createStableObjectKeyResolver<ModelMapping>('edit-openai-compact-model-mapping')
 const getAntigravityModelMappingKey = createStableObjectKeyResolver<ModelMapping>('edit-antigravity-model-mapping')
 const getTempUnschedRuleKey = createStableObjectKeyResolver<TempUnschedRuleForm>('edit-temp-unsched-rule')
+
+const parseModelList = (raw: unknown): string[] => {
+  if (!Array.isArray(raw)) return []
+  return raw.map((value) => String(value).trim()).filter((value) => value.length > 0)
+}
+
+const buildModelBlacklist = (): string[] | null => {
+  return buildModelBlacklistArray(blacklistedModels.value)
+}
+
+const applyModelRestrictionToCredentials = (
+  credentials: Record<string, unknown>,
+  options: { preserveModelMapping?: unknown } = {}
+) => {
+  delete credentials.model_mapping
+  delete credentials.model_blacklist
+
+  if (Object.prototype.hasOwnProperty.call(options, 'preserveModelMapping')) {
+    if (options.preserveModelMapping) {
+      credentials.model_mapping = options.preserveModelMapping
+    }
+  } else {
+    const modelMapping = buildModelRestrictionMapping()
+    if (modelMapping) {
+      credentials.model_mapping = modelMapping
+    }
+  }
+
+  const modelBlacklist = buildModelBlacklist()
+  if (modelBlacklist) {
+    credentials.model_blacklist = modelBlacklist
+  }
+}
 
 const showMixedChannelWarning = ref(false)
 const mixedChannelWarningDetails = ref<{ groupName: string; currentPlatform: string; otherPlatform: string } | null>(
@@ -3208,6 +3307,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   // Load intercept warmup requests setting (applies to all account types)
   const credentials = newAccount.credentials as Record<string, unknown> | undefined
   interceptWarmupRequests.value = credentials?.intercept_warmup_requests === true
+  blacklistedModels.value = parseModelList(credentials?.model_blacklist)
   autoPauseOnExpired.value = newAccount.auto_pause_on_expired === true
   editVertexProjectId.value = ''
   editVertexClientEmail.value = ''
@@ -4028,14 +4128,11 @@ const handleSubmit = async () => {
 
       // Add model mapping if configured（OpenAI 开启自动透传时保留现有映射，不再编辑）
       if (shouldApplyModelMapping) {
-        const modelMapping = buildModelRestrictionMapping()
-        if (modelMapping) {
-          newCredentials.model_mapping = modelMapping
-        } else {
-          delete newCredentials.model_mapping
-        }
-      } else if (currentCredentials.model_mapping) {
-        newCredentials.model_mapping = currentCredentials.model_mapping
+        applyModelRestrictionToCredentials(newCredentials)
+      } else {
+        applyModelRestrictionToCredentials(newCredentials, {
+          preserveModelMapping: currentCredentials.model_mapping
+        })
       }
       if (props.account.platform === 'openai') {
         applyOpenAIEndpointCapabilities(newCredentials)
@@ -4200,13 +4297,7 @@ const handleSubmit = async () => {
         delete newCredentials.pool_mode_retry_status_codes
       }
 
-      // Model mapping
-      const modelMapping = buildModelRestrictionMapping()
-      if (modelMapping) {
-        newCredentials.model_mapping = modelMapping
-      } else {
-        delete newCredentials.model_mapping
-      }
+      applyModelRestrictionToCredentials(newCredentials)
 
       applyInterceptWarmup(newCredentials, interceptWarmupRequests.value, 'edit')
       if (!applyTempUnschedConfig(newCredentials)) {
@@ -4304,6 +4395,7 @@ const handleSubmit = async () => {
       // 移除旧字段
       delete newCredentials.model_whitelist
       delete newCredentials.model_mapping
+      delete newCredentials.model_blacklist
 
       // 只使用映射模式
       const antigravityModelMapping = buildModelMappingObject(
@@ -4313,6 +4405,10 @@ const handleSubmit = async () => {
       )
       if (antigravityModelMapping) {
         newCredentials.model_mapping = antigravityModelMapping
+      }
+      const modelBlacklist = buildModelBlacklist()
+      if (modelBlacklist) {
+        newCredentials.model_blacklist = modelBlacklist
       }
 
       updatePayload.credentials = newCredentials

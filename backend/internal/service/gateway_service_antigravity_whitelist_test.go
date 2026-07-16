@@ -238,3 +238,24 @@ func TestGatewayService_isModelSupportedByAccountWithContext_CustomMappingThinki
 	ctx = context.WithValue(context.Background(), ctxkey.ThinkingEnabled, true)
 	require.True(t, svc.isModelSupportedByAccountWithContext(ctx, account, "my-custom-model"))
 }
+
+func TestGatewayService_isModelSupportedByAccountWithContext_AntigravityBlacklistFinalModel(t *testing.T) {
+	svc := &GatewayService{}
+
+	account := &Account{
+		Platform: PlatformAntigravity,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"claude-sonnet-4-5":          "claude-sonnet-4-5",
+				"claude-sonnet-4-5-thinking": "claude-sonnet-4-5-thinking",
+			},
+			"model_blacklist": []any{"claude-sonnet-4-5-thinking"},
+		},
+	}
+
+	ctx := context.WithValue(context.Background(), ctxkey.ThinkingEnabled, true)
+	require.False(t, svc.isModelSupportedByAccountWithContext(ctx, account, "claude-sonnet-4-5"))
+
+	ctx = context.WithValue(context.Background(), ctxkey.ThinkingEnabled, false)
+	require.True(t, svc.isModelSupportedByAccountWithContext(ctx, account, "claude-sonnet-4-5"))
+}
