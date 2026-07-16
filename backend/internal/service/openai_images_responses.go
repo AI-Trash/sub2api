@@ -1236,8 +1236,9 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthNonStreamingResponse(
 	c *gin.Context,
 	responseFormat string,
 	fallbackModel string,
+	jsonKeepalive bool,
 ) (OpenAIUsage, int, []string, error) {
-	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
+	body, err := s.readOpenAIImagesNonStreamingResponseBody(resp.Body, c, jsonKeepalive)
 	if err != nil {
 		return OpenAIUsage{}, 0, nil, err
 	}
@@ -1313,8 +1314,9 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthStreamingResponse(
 ) (OpenAIUsage, int, []string, *int, error) {
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
+	c.Header("Cache-Control", openAIImagesKeepaliveCacheCtl)
 	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
 	c.Status(resp.StatusCode)
 
 	flusher, ok := c.Writer.(http.Flusher)
@@ -1710,8 +1712,14 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
+	jsonKeepalive := s.shouldUseOpenAIImagesJSONKeepalive(c, parsed)
+	stopPreResponseKeepalive := s.startOpenAIImagesPreResponseKeepalive(c, parsed)
+	if jsonKeepalive {
+		stopPreResponseKeepalive = startOpenAIImagesJSONPreResponseKeepalive(c, s.openAIImagesJSONKeepaliveInterval(c))
+	}
 	upstreamStart := time.Now()
 	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+	stopPreResponseKeepalive()
 	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 	if err != nil {
 		safeErr := sanitizeUpstreamErrorMessage(err.Error())
@@ -1725,6 +1733,11 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 			Kind:               "request_error",
 			Message:            safeErr,
 		})
+		if parsed.Stream {
+			_ = s.writeOpenAIImagesStreamErrorIfStarted(c, safeErr)
+		} else if jsonKeepalive {
+			_ = writeOpenAIImagesJSONErrorIfStarted(c, safeErr)
+		}
 		return nil, fmt.Errorf("upstream request failed: %s", safeErr)
 	}
 	if resp.StatusCode >= 400 {
@@ -1741,6 +1754,28 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
+		if (parsed.Stream || jsonKeepalive) && c != nil && c.Writer != nil && c.Writer.Written() {
+			if upstreamMsg == "" {
+				upstreamMsg = fmt.Sprintf("upstream error: %d", resp.StatusCode)
+			}
+			setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, "")
+			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+				Platform:           account.Platform,
+				AccountID:          account.ID,
+				AccountName:        account.Name,
+				UpstreamStatusCode: resp.StatusCode,
+				UpstreamRequestID:  resp.Header.Get("x-request-id"),
+				UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
+				Kind:               "http_error",
+				Message:            upstreamMsg,
+			})
+			if parsed.Stream {
+				_ = s.writeOpenAIImagesStreamErrorIfStarted(c, upstreamMsg)
+			} else if jsonKeepalive {
+				_ = writeOpenAIImagesJSONErrorIfStarted(c, upstreamMsg)
+			}
+			return nil, fmt.Errorf("upstream error: %d message=%s", resp.StatusCode, upstreamMsg)
+		}
 		if s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMsg, respBody) {
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				Platform:           account.Platform,
@@ -1803,7 +1838,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 			)
 		}
 	} else {
-		usage, imageCount, imageOutputSizes, err = s.handleOpenAIImagesOAuthNonStreamingResponse(resp, c, parsed.ResponseFormat, requestModel)
+		usage, imageCount, imageOutputSizes, err = s.handleOpenAIImagesOAuthNonStreamingResponse(resp, c, parsed.ResponseFormat, requestModel, jsonKeepalive)
 		if err != nil {
 			return nil, s.handleOpenAIImagesOAuthResponseError(
 				upstreamCtx,

@@ -20,6 +20,7 @@ import (
 // Images handles OpenAI Images API requests.
 // POST /v1/images/generations
 // POST /v1/images/edits
+// POST /v1/images/variations
 func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	streamStarted := false
 	defer h.recoverResponsesPanic(c, &streamStarted)
@@ -232,6 +233,9 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			}()
 			return h.gatewayService.ForwardImages(requestCtx, c, account, body, parsed, channelMapping.MappedModel)
 		}()
+		if parsed.Stream && c.Writer != nil && c.Writer.Written() {
+			streamStarted = true
+		}
 		forwardDurationMs := time.Since(forwardStart).Milliseconds()
 		upstreamLatencyMs, _ := getContextInt64(c, service.OpsUpstreamLatencyMsKey)
 		responseLatencyMs := forwardDurationMs
