@@ -8546,7 +8546,7 @@
             <div class="space-y-6 p-6">
               <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
                 <div>
-                  
+
               <div class="form-group">
                 <label class="label">{{ t("admin.settings.smtp.provider") }}</label>
                 <select v-model="form.email_provider" class="input">
@@ -9208,7 +9208,7 @@ function emailApiUrlPlaceholder(provider: EmailProvider | string): string {
 
 function effectiveEmailApiUrl(): string {
   const url = (form.email_api_url || "").trim();
-  return url || defaultEmailApiUrl(form.email_provider);
+  return url || defaultEmailApiUrl(form.email_provider || "smtp");
 }
 
 const smtpPasswordManuallyEdited = ref(false);
@@ -9757,11 +9757,19 @@ type SettingsForm = Omit<
   | "wechat_connect_mp_enabled"
   | "wechat_connect_mobile_enabled"
   | "openai_oauth_scheduling_rate_multiplier"
+  | "email_provider"
+  | "email_api_url"
+  | "email_api_key"
+  | "email_api_key_configured"
 > & {
   /** Form always binds a concrete boolean (SystemSettings marks this optional). */
   channel_monitor_hide_throughput: boolean;
   channel_monitor_show_quota: boolean;
   channel_monitor_hide_user_ranking: boolean;
+  email_provider: EmailProvider;
+  email_api_url: string;
+  email_api_key: string;
+  email_api_key_configured: boolean;
   smtp_password: string;
   turnstile_secret_key: string;
   tencent_captcha_app_secret_key: string;
@@ -9907,6 +9915,7 @@ const form = reactive<SettingsForm>({
   email_provider: "smtp" as EmailProvider,
   email_api_url: "",
   email_api_key: "",
+  email_api_key_configured: false,
   smtp_host: "",
   smtp_port: 587,
   smtp_username: "",
