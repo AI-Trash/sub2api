@@ -91,6 +91,7 @@ type AdminService interface {
 	ForceAntigravityPrivacy(ctx context.Context, account *Account) string
 	SetAccountSchedulable(ctx context.Context, id int64, schedulable bool) (*Account, error)
 	BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error)
+	BulkDeleteAccounts(ctx context.Context, input *BulkDeleteAccountsInput) (*BulkDeleteAccountsResult, error)
 	CheckMixedChannelRisk(ctx context.Context, currentAccountID int64, currentAccountPlatform string, groupIDs []int64) error
 	// RevertAccountProxyFallback 将账号的 proxy_id 切回 proxy_fallback_origin_id，并清空 origin 字段。
 	// 若账号不存在返回 ErrAccountNotFound；若账号存在但不在 fallback 状态，返回 ErrAccountNotInFallback。
@@ -357,6 +358,11 @@ type UpdateAccountInput struct {
 }
 
 // BulkUpdateAccountsInput describes the payload for bulk updating accounts.
+type BulkDeleteAccountsInput struct {
+	AccountIDs []int64
+	Filters    *BulkUpdateAccountFilters
+}
+
 type BulkUpdateAccountsInput struct {
 	AccountIDs     []int64
 	Filters        *BulkUpdateAccountFilters
@@ -386,6 +392,12 @@ type BulkUpdateAccountFilters struct {
 }
 
 // BulkUpdateAccountResult captures the result for a single account update.
+type BulkDeleteAccountResult struct {
+	AccountID int64  `json:"account_id"`
+	Success   bool   `json:"success"`
+	Error     string `json:"error,omitempty"`
+}
+
 type BulkUpdateAccountResult struct {
 	AccountID int64  `json:"account_id"`
 	Success   bool   `json:"success"`
@@ -422,6 +434,14 @@ type UserGroupRPMStatus struct {
 }
 
 // BulkUpdateAccountsResult is the aggregated response for bulk updates.
+type BulkDeleteAccountsResult struct {
+	Success    int                       `json:"success"`
+	Failed     int                       `json:"failed"`
+	SuccessIDs []int64                   `json:"success_ids"`
+	FailedIDs  []int64                   `json:"failed_ids"`
+	Results    []BulkDeleteAccountResult `json:"results"`
+}
+
 type BulkUpdateAccountsResult struct {
 	Success    int                       `json:"success"`
 	Failed     int                       `json:"failed"`

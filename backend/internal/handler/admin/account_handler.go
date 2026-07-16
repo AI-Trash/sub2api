@@ -172,6 +172,12 @@ type BulkUpdateAccountFilters struct {
 }
 
 // CheckMixedChannelRequest represents check mixed channel risk request
+// BulkDeleteAccountsRequest represents the payload for bulk deleting accounts.
+type BulkDeleteAccountsRequest struct {
+	AccountIDs []int64                   `json:"account_ids"`
+	Filters    *BulkUpdateAccountFilters `json:"filters"`
+}
+
 type CheckMixedChannelRequest struct {
 	Platform  string  `json:"platform" binding:"required"`
 	GroupIDs  []int64 `json:"group_ids"`
@@ -879,6 +885,7 @@ func (h *AccountHandler) Duplicate(c *gin.Context) {
 	}
 	actorScope := adminActorScope(c)
 
+	var duplicatedAccount *service.Account
 	result, err := executeAdminIdempotent(
 		c,
 		"admin.accounts.duplicate",
@@ -891,6 +898,7 @@ func (h *AccountHandler) Duplicate(c *gin.Context) {
 			if execErr != nil {
 				return nil, execErr
 			}
+			duplicatedAccount = account
 			return h.buildAccountResponseWithRuntime(ctx, account), nil
 		},
 	)
@@ -902,9 +910,13 @@ func (h *AccountHandler) Duplicate(c *gin.Context) {
 				slog.Warn("account_duplicate_recovery_failed", "account_id", accountID, "actor_scope", actorScope, "reason", reason, "error", recoverErr)
 			} else if recovered != nil {
 				c.Header("X-Idempotency-Recovered", "true")
+				h.scheduleOpenAIResponsesProbe(recovered)
 				response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), recovered))
 				return
 			}
+		}
+		if retryAfter := service.RetryAfterSecondsFromError(err); retryAfter > 0 {
+			c.Header("Retry-After", strconv.Itoa(retryAfter))
 		}
 		response.ErrorFrom(c, err)
 		return
@@ -913,6 +925,7 @@ func (h *AccountHandler) Duplicate(c *gin.Context) {
 	if result != nil && result.Replayed {
 		c.Header("X-Idempotency-Replayed", "true")
 	}
+	h.scheduleOpenAIResponsesProbe(duplicatedAccount)
 	response.Success(c, result.Data)
 }
 
@@ -1023,6 +1036,32 @@ func (h *AccountHandler) Delete(c *gin.Context) {
 
 	response.Success(c, gin.H{"message": "Account deleted successfully"})
 }
+
+// BulkDelete handles deleting selected or filtered accounts.
+// POST /api/v1/admin/accounts/bulk-delete
+func (h *AccountHandler) BulkDelete(c *gin.Context) {
+	var req BulkDeleteAccountsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if len(req.AccountIDs) == 0 && req.Filters == nil {
+		response.BadRequest(c, "account_ids or filters is required")
+		return
+	}
+
+	result, err := h.adminService.BulkDeleteAccounts(c.Request.Context(), &service.BulkDeleteAccountsInput{
+		AccountIDs: req.AccountIDs,
+		Filters:    toServiceBulkUpdateAccountFilters(req.Filters),
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, result)
+}
+
 
 // TestAccountRequest represents the request body for testing an account
 type TestAccountRequest struct {

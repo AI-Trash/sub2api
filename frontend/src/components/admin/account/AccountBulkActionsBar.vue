@@ -46,6 +46,7 @@ import { useI18n } from 'vue-i18n'
 defineProps<{ selectedIds: number[] }>()
 defineEmits([
   'delete',
+  'delete-filtered',
   'edit-selected',
   'edit-filtered',
   'clear',

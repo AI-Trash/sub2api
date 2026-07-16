@@ -20,6 +20,7 @@ func setupAccountMixedChannelRouter(adminSvc *stubAdminService) *gin.Engine {
 	router.POST("/api/v1/admin/accounts", accountHandler.Create)
 	router.PUT("/api/v1/admin/accounts/:id", accountHandler.Update)
 	router.POST("/api/v1/admin/accounts/bulk-update", accountHandler.BulkUpdate)
+	router.POST("/api/v1/admin/accounts/bulk-delete", accountHandler.BulkDelete)
 	return router
 }
 
@@ -221,4 +222,37 @@ func TestBulkUpdateAcceptsFilterTargetRequest(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, float64(0), resp["code"])
+}
+
+
+func TestBulkDeleteAcceptsFilterTargetRequest(t *testing.T) {
+	adminSvc := newStubAdminService()
+	router := setupAccountMixedChannelRouter(adminSvc)
+
+	body, _ := json.Marshal(map[string]any{
+		"filters": map[string]any{
+			"platform":     "openai",
+			"type":         "oauth",
+			"status":       "active",
+			"group":        "12",
+			"privacy_mode": "blocked",
+			"search":       "bulk-target",
+		},
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/bulk-delete", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, float64(0), resp["code"])
+	require.NotNil(t, adminSvc.lastBulkDelete.filters)
+	require.Equal(t, "openai", adminSvc.lastBulkDelete.filters.Platform)
+	require.Equal(t, "oauth", adminSvc.lastBulkDelete.filters.Type)
+	require.Equal(t, "active", adminSvc.lastBulkDelete.filters.Status)
+	require.Equal(t, "12", adminSvc.lastBulkDelete.filters.Group)
+	require.Equal(t, "blocked", adminSvc.lastBulkDelete.filters.PrivacyMode)
+	require.Equal(t, "bulk-target", adminSvc.lastBulkDelete.filters.Search)
 }

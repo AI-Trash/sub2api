@@ -210,6 +210,7 @@
         <AccountBulkActionsBar
           :selected-ids="selIds"
           @delete="handleBulkDelete"
+          @delete-filtered="handleBulkDeleteFiltered"
           @reset-status="handleBulkResetStatus"
           @refresh-token="handleBulkRefreshToken"
           @probe-upstream-billing="handleBulkProbeUpstreamBilling"
@@ -1866,11 +1867,12 @@ const handleDuplicateAccount = async (a: Account) => {
   duplicatingAccountIDs.add(a.id)
   try {
     const duplicate = await adminAPI.accounts.duplicate(a.id)
+    await reload()
+    enterAutoRefreshSilentWindow()
     appStore.showSuccess(t('admin.accounts.duplicateSuccess', { name: duplicate.name }))
-    reload()
   } catch (error: any) {
     console.error('Failed to duplicate account:', error)
-    appStore.showError(error?.message || t('admin.accounts.duplicateFailed'))
+    appStore.showError(error?.response?.data?.message || error?.message || t('admin.accounts.duplicateFailed'))
   } finally {
     duplicatingAccountIDs.delete(a.id)
   }

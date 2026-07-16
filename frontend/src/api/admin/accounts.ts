@@ -447,6 +447,28 @@ export async function batchUpdateCredentials(request: {
  * @param updates - Fields to update
  * @returns Success confirmation
  */
+export async function bulkDelete(
+  accountIdsOrPayload: number[] | Record<string, unknown>
+): Promise<{
+  success: number
+  failed: number
+  success_ids?: number[]
+  failed_ids?: number[]
+  results: Array<{ account_id: number; success: boolean; error?: string }>
+}> {
+  const payload = Array.isArray(accountIdsOrPayload)
+    ? { account_ids: accountIdsOrPayload }
+    : accountIdsOrPayload
+  const { data } = await apiClient.post<{
+    success: number
+    failed: number
+    success_ids?: number[]
+    failed_ids?: number[]
+    results: Array<{ account_id: number; success: boolean; error?: string }>
+  }>('/admin/accounts/bulk-delete', payload)
+  return data
+}
+
 export async function bulkUpdate(
   accountIdsOrPayload: number[] | Record<string, unknown>,
   updates?: Record<string, unknown>
@@ -915,6 +937,7 @@ export const accountsAPI = {
   batchCreate,
   batchUpdateCredentials,
   bulkUpdate,
+  bulkDelete,
   previewFromCrs,
   syncFromCrs,
   exportData,
