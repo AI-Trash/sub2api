@@ -93,6 +93,7 @@ import { useI18n } from 'vue-i18n'
 import TurnstileWidget from '@/components/TurnstileWidget.vue'
 import { getPublicSettings, sendPendingOAuthVerifyCode } from '@/api/auth'
 import { useAppStore } from '@/stores'
+import { getPersistedInvitationCode, persistInvitationCode } from '@/utils/invitationLink'
 
 export type PendingOAuthCreateAccountPayload = {
   email: string
@@ -145,6 +146,10 @@ watch(sendCodeError, value => {
   if (value) {
     appStore.showError(value)
   }
+})
+
+watch(invitationCode, value => {
+  persistInvitationCode(value)
 })
 
 watch(
@@ -264,6 +269,9 @@ onMounted(async () => {
     emailVerifyEnabled.value = settings.email_verify_enabled !== false
     turnstileEnabled.value = settings.turnstile_enabled === true
     turnstileSiteKey.value = settings.turnstile_site_key || ''
+    if (invitationCodeEnabled.value && !invitationCode.value.trim()) {
+      invitationCode.value = getPersistedInvitationCode()
+    }
   } catch {
     invitationCodeEnabled.value = false
     emailVerifyEnabled.value = true

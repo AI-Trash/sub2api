@@ -318,6 +318,11 @@ import {
 } from '@/api/auth'
 import { buildAuthErrorMessage } from '@/utils/authError'
 import {
+  clearPersistedInvitationCode,
+  persistInvitationCode,
+  resolveInvitationCode
+} from '@/utils/invitationLink'
+import {
   formatRegistrationEmailSuffixWhitelistForMessage,
   isRegistrationEmailSuffixAllowed,
   normalizeRegistrationEmailSuffixWhitelist
@@ -440,6 +445,13 @@ watch(validationToastMessage, (value, previousValue) => {
   }
 })
 
+watch(
+  () => formData.invitation_code,
+  value => {
+    persistInvitationCode(value)
+  }
+)
+
 function syncAffiliateReferralCode(): string {
   const code = resolveAffiliateReferralCode(route.query.aff, route.query.aff_code)
   if (code) {
@@ -482,6 +494,14 @@ onMounted(async () => {
         await validatePromoCodeDebounced(promoParam)
       }
     }
+    if (invitationCodeEnabled.value) {
+      const invitationCode = resolveInvitationCode(route.query)
+      if (invitationCode) {
+        formData.invitation_code = invitationCode
+        await validateInvitationCodeDebounced(invitationCode)
+      }
+    }
+
     syncAffiliateReferralCode()
   } catch (error) {
     console.error('Failed to load public settings:', error)
@@ -891,6 +911,8 @@ async function handleRegister(): Promise<void> {
       ...(affCode ? { aff_code: affCode } : {})
     })
     clearAffiliateReferralCode()
+
+    clearPersistedInvitationCode()
 
     // Show success toast
     appStore.showSuccess(t('auth.accountCreatedSuccess', { siteName: siteName.value }))

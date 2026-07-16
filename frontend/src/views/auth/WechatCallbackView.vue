@@ -341,6 +341,11 @@ import {
   type PendingOAuthExchangeResponse
 } from '@/api/auth'
 import {
+  clearPersistedInvitationCode,
+  getPersistedInvitationCode,
+  persistInvitationCode
+} from '@/utils/invitationLink'
+import {
   clearAllAffiliateReferralCodes,
   loadOAuthAffiliateCode,
   oauthAffiliatePayload
@@ -357,7 +362,7 @@ const isProcessing = ref(true)
 const errorMessage = ref('')
 const needsInvitation = ref(false)
 const needsChooser = ref(false)
-const invitationCode = ref('')
+const invitationCode = ref(getPersistedInvitationCode())
 const isSubmitting = ref(false)
 const invitationError = ref('')
 const redirectTo = ref('/dashboard')
@@ -393,6 +398,10 @@ watch(invitationError, value => {
   if (value) {
     appStore.showError(value)
   }
+})
+
+watch(invitationCode, value => {
+  persistInvitationCode(value)
 })
 
 watch(accountActionError, value => {
@@ -807,6 +816,7 @@ async function finalizeCompletion(completion: PendingOAuthExchangeResponse, redi
   if (getOAuthCompletionKind(completion) === 'bind') {
     const bindRedirect = sanitizeRedirectPath(completion.redirect || '/profile')
     clearPendingAuthSession()
+    clearPersistedInvitationCode()
     clearAllAffiliateReferralCodes()
     appStore.showSuccess(bindSuccessMessage)
     await router.replace(bindRedirect)
@@ -819,6 +829,7 @@ async function finalizeCompletion(completion: PendingOAuthExchangeResponse, redi
 
   persistOAuthTokenContext(completion)
   await authStore.setToken(completion.access_token)
+  clearPersistedInvitationCode()
   clearAllAffiliateReferralCodes()
   appStore.showSuccess(t('auth.loginSuccess'))
   await router.replace(redirect)
@@ -1026,6 +1037,7 @@ onMounted(async () => {
     if (legacyLogin) {
       persistOAuthTokenContext(legacyLogin)
       await authStore.setToken(legacyLogin.access_token)
+      clearPersistedInvitationCode()
       clearAllAffiliateReferralCodes()
       appStore.showSuccess(t('auth.loginSuccess'))
       await router.replace(redirect)

@@ -1257,6 +1257,18 @@ func (s *adminServiceImpl) BatchDeleteRedeemCodes(ctx context.Context, ids []int
 	return deleted, nil
 }
 
+func (s *adminServiceImpl) DeleteUnusedRedeemCodes(ctx context.Context) (int64, error) {
+	return s.redeemCodeRepo.DeleteByStatuses(ctx, []string{StatusUnused})
+}
+
+func (s *adminServiceImpl) DeleteAllRedeemCodes(ctx context.Context) (int64, error) {
+	return s.redeemCodeRepo.DeleteAll(ctx)
+}
+
+func (s *adminServiceImpl) DeleteUsedOrExpiredRedeemCodes(ctx context.Context) (int64, error) {
+	return s.redeemCodeRepo.DeleteByStatuses(ctx, []string{StatusUsed, StatusExpired})
+}
+
 func (s *adminServiceImpl) ExpireRedeemCode(ctx context.Context, id int64) (*RedeemCode, error) {
 	code, err := s.redeemCodeRepo.GetByID(ctx, id)
 	if err != nil {
