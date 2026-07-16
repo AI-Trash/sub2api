@@ -25,6 +25,9 @@ type userRepoStub struct {
 	deletedIDs    []int64
 	usersByEmail  map[string]*User
 	getByEmailErr error
+	listUsers     []User
+	listPage      *pagination.PaginationResult
+	listErr       error
 }
 
 func (s *userRepoStub) Create(ctx context.Context, user *User) error {
@@ -104,6 +107,12 @@ func (s *userRepoStub) List(ctx context.Context, params pagination.PaginationPar
 }
 
 func (s *userRepoStub) ListWithFilters(ctx context.Context, params pagination.PaginationParams, filters UserListFilters) ([]User, *pagination.PaginationResult, error) {
+	if s.listErr != nil {
+		return nil, nil, s.listErr
+	}
+	if s.listPage != nil || s.listUsers != nil {
+		return s.listUsers, s.listPage, nil
+	}
 	panic("unexpected ListWithFilters call")
 }
 
@@ -339,6 +348,10 @@ func (s *proxyRepoStub) CountExpiringSoon(_ context.Context, _ time.Time) (int64
 }
 
 type redeemRepoStub struct {
+	codesByCode   map[string]*RedeemCode
+	createdBatch  []RedeemCode
+	used          []redeemUseCall
+	useErr        error
 	deleteErrByID map[int64]error
 	deletedIDs    []int64
 
@@ -349,12 +362,18 @@ type redeemRepoStub struct {
 	batchUpdateCalled bool
 }
 
+type redeemUseCall struct {
+	id     int64
+	userID int64
+}
+
 func (s *redeemRepoStub) Create(ctx context.Context, code *RedeemCode) error {
 	panic("unexpected Create call")
 }
 
 func (s *redeemRepoStub) CreateBatch(ctx context.Context, codes []RedeemCode) error {
-	panic("unexpected CreateBatch call")
+	s.createdBatch = append(s.createdBatch, codes...)
+	return nil
 }
 
 func (s *redeemRepoStub) GetByID(ctx context.Context, id int64) (*RedeemCode, error) {
@@ -362,7 +381,12 @@ func (s *redeemRepoStub) GetByID(ctx context.Context, id int64) (*RedeemCode, er
 }
 
 func (s *redeemRepoStub) GetByCode(ctx context.Context, code string) (*RedeemCode, error) {
-	panic("unexpected GetByCode call")
+	if s.codesByCode != nil {
+		if redeemCode, ok := s.codesByCode[code]; ok {
+			return redeemCode, nil
+		}
+	}
+	return nil, ErrRedeemCodeNotFound
 }
 
 func (s *redeemRepoStub) Update(ctx context.Context, code *RedeemCode) error {
@@ -392,8 +416,17 @@ func (s *redeemRepoStub) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
+func (s *redeemRepoStub) DeleteAll(ctx context.Context) (int64, error) {
+	panic("unexpected DeleteAll call")
+}
+
+func (s *redeemRepoStub) DeleteByStatuses(ctx context.Context, statuses []string) (int64, error) {
+	panic("unexpected DeleteByStatuses call")
+}
+
 func (s *redeemRepoStub) Use(ctx context.Context, id, userID int64) error {
-	panic("unexpected Use call")
+	s.used = append(s.used, redeemUseCall{id: id, userID: userID})
+	return s.useErr
 }
 
 func (s *redeemRepoStub) List(ctx context.Context, params pagination.PaginationParams) ([]RedeemCode, *pagination.PaginationResult, error) {

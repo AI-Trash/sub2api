@@ -91,6 +91,7 @@ type AdminService interface {
 	ForceAntigravityPrivacy(ctx context.Context, account *Account) string
 	SetAccountSchedulable(ctx context.Context, id int64, schedulable bool) (*Account, error)
 	BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error)
+	BulkDeleteAccounts(ctx context.Context, input *BulkDeleteAccountsInput) (*BulkDeleteAccountsResult, error)
 	CheckMixedChannelRisk(ctx context.Context, currentAccountID int64, currentAccountPlatform string, groupIDs []int64) error
 	// RevertAccountProxyFallback 将账号的 proxy_id 切回 proxy_fallback_origin_id，并清空 origin 字段。
 	// 若账号不存在返回 ErrAccountNotFound；若账号存在但不在 fallback 状态，返回 ErrAccountNotInFallback。
@@ -121,6 +122,9 @@ type AdminService interface {
 	GenerateRedeemCodes(ctx context.Context, input *GenerateRedeemCodesInput) ([]RedeemCode, error)
 	DeleteRedeemCode(ctx context.Context, id int64) error
 	BatchDeleteRedeemCodes(ctx context.Context, ids []int64) (int64, error)
+	DeleteUnusedRedeemCodes(ctx context.Context) (int64, error)
+	DeleteAllRedeemCodes(ctx context.Context) (int64, error)
+	DeleteUsedOrExpiredRedeemCodes(ctx context.Context) (int64, error)
 	ExpireRedeemCode(ctx context.Context, id int64) (*RedeemCode, error)
 	ResetAccountQuota(ctx context.Context, id int64) error
 }
@@ -376,6 +380,12 @@ type BulkUpdateAccountsInput struct {
 	SkipMixedChannelCheck bool
 }
 
+// BulkDeleteAccountsInput describes the target accounts for bulk deletion.
+type BulkDeleteAccountsInput struct {
+	AccountIDs []int64
+	Filters    *BulkUpdateAccountFilters
+}
+
 type BulkUpdateAccountFilters struct {
 	Platform    string
 	Type        string
@@ -387,6 +397,13 @@ type BulkUpdateAccountFilters struct {
 
 // BulkUpdateAccountResult captures the result for a single account update.
 type BulkUpdateAccountResult struct {
+	AccountID int64  `json:"account_id"`
+	Success   bool   `json:"success"`
+	Error     string `json:"error,omitempty"`
+}
+
+// BulkDeleteAccountResult captures the result for a single account deletion.
+type BulkDeleteAccountResult struct {
 	AccountID int64  `json:"account_id"`
 	Success   bool   `json:"success"`
 	Error     string `json:"error,omitempty"`
@@ -428,6 +445,15 @@ type BulkUpdateAccountsResult struct {
 	SuccessIDs []int64                   `json:"success_ids"`
 	FailedIDs  []int64                   `json:"failed_ids"`
 	Results    []BulkUpdateAccountResult `json:"results"`
+}
+
+// BulkDeleteAccountsResult is the aggregated response for bulk deletes.
+type BulkDeleteAccountsResult struct {
+	Success    int                       `json:"success"`
+	Failed     int                       `json:"failed"`
+	SuccessIDs []int64                   `json:"success_ids"`
+	FailedIDs  []int64                   `json:"failed_ids"`
+	Results    []BulkDeleteAccountResult `json:"results"`
 }
 
 type CreateProxyInput struct {

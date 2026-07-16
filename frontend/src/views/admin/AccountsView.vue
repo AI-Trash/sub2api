@@ -210,6 +210,7 @@
         <AccountBulkActionsBar
           :selected-ids="selIds"
           @delete="handleBulkDelete"
+          @delete-filtered="handleBulkDeleteFiltered"
           @reset-status="handleBulkResetStatus"
           @refresh-token="handleBulkRefreshToken"
           @probe-upstream-billing="handleBulkProbeUpstreamBilling"
@@ -402,7 +403,7 @@
             <span class="text-sm text-gray-500 dark:text-dark-400">{{ formatRelativeTime(value) }}</span>
           </template>
           <template #cell-created_at="{ value }">
-            <span class="text-sm text-gray-500 dark:text-dark-400">{{ formatDateTime(value) }}</span>
+            <span class="text-sm text-gray-500 dark:text-dark-400">{{ formatDateTime(value) || '-' }}</span>
           </template>
           <template #cell-expires_at="{ row, value }">
             <div class="flex flex-col items-start gap-1">
@@ -599,6 +600,7 @@ const showSchedulePanel = ref(false)
 const scheduleAcc = ref<Account | null>(null)
 const scheduleModelOptions = ref<SelectOption[]>([])
 const togglingSchedulable = ref<number | null>(null)
+const duplicatingAccount = ref<number | null>(null)
 const menu = reactive<{show:boolean, acc:Account|null, pos:{top:number, left:number}|null}>({ show: false, acc: null, pos: null })
 const exportingData = ref(false)
 const upstreamBillingProbeSettings = reactive<UpstreamBillingProbeSettings>({
@@ -1451,7 +1453,55 @@ const toggleSelectAllVisible = (event: Event) => {
   const target = event.target as HTMLInputElement
   toggleVisible(target.checked)
 }
-const handleBulkDelete = async () => { if(!confirm(t('common.confirm'))) return; try { await Promise.all(selIds.value.map(id => adminAPI.accounts.delete(id))); clearSelection(); reload() } catch (error) { console.error('Failed to bulk delete accounts:', error) } }
+const handleBulkDelete = async () => {
+  const accountIds = [...selIds.value]
+  if (accountIds.length === 0) return
+  if (!confirm(t('admin.accounts.bulkDeleteConfirm', { count: accountIds.length }))) return
+  try {
+    const result = await adminAPI.accounts.bulkDelete(accountIds)
+    const success = result.success || 0
+    const failed = result.failed || 0
+    if (success > 0 && failed === 0) {
+      appStore.showSuccess(t('admin.accounts.bulkDeleteSuccess', { count: success }))
+      clearSelection()
+    } else if (success > 0) {
+      appStore.showError(t('admin.accounts.bulkDeletePartial', { success, failed }))
+      setSelectedIds(result.failed_ids && result.failed_ids.length > 0 ? result.failed_ids : accountIds)
+    } else {
+      appStore.showError(t('admin.accounts.bulkDeleteFailed'))
+    }
+    reload()
+  } catch (error: any) {
+    console.error('Failed to bulk delete accounts:', error)
+    appStore.showError(error.message || t('admin.accounts.bulkDeleteFailed'))
+  }
+}
+const handleBulkDeleteFiltered = async () => {
+  const filters = buildBulkEditFilterSnapshot()
+  const count = pagination.total || 0
+  if (count <= 0) {
+    appStore.showError(t('admin.accounts.bulkEdit.noSelection'))
+    return
+  }
+  if (!confirm(t('admin.accounts.bulkDeleteConfirm', { count }))) return
+  try {
+    const result = await adminAPI.accounts.bulkDelete({ filters })
+    const success = result.success || 0
+    const failed = result.failed || 0
+    if (success > 0 && failed === 0) {
+      appStore.showSuccess(t('admin.accounts.bulkDeleteSuccess', { count: success }))
+      clearSelection()
+    } else if (success > 0) {
+      appStore.showError(t('admin.accounts.bulkDeletePartial', { success, failed }))
+    } else {
+      appStore.showError(t('admin.accounts.bulkDeleteFailed'))
+    }
+    reload()
+  } catch (error: any) {
+    console.error('Failed to bulk delete filtered accounts:', error)
+    appStore.showError(error.message || t('admin.accounts.bulkDeleteFailed'))
+  }
+}
 const handleBulkResetStatus = async () => {
   if (!confirm(t('common.confirm'))) return
   try {
@@ -1866,11 +1916,12 @@ const handleDuplicateAccount = async (a: Account) => {
   duplicatingAccountIDs.add(a.id)
   try {
     const duplicate = await adminAPI.accounts.duplicate(a.id)
+    await reload()
+    enterAutoRefreshSilentWindow()
     appStore.showSuccess(t('admin.accounts.duplicateSuccess', { name: duplicate.name }))
-    reload()
   } catch (error: any) {
     console.error('Failed to duplicate account:', error)
-    appStore.showError(error?.message || t('admin.accounts.duplicateFailed'))
+    appStore.showError(error?.response?.data?.message || error?.message || t('admin.accounts.duplicateFailed'))
   } finally {
     duplicatingAccountIDs.delete(a.id)
   }

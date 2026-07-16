@@ -7,6 +7,7 @@ const {
   listAccounts,
   listWithEtag,
   getBatchTodayStats,
+  bulkDelete,
   getAllProxies,
   getAllGroups,
   probeUpstreamBillingBatch
@@ -14,6 +15,7 @@ const {
   listAccounts: vi.fn(),
   listWithEtag: vi.fn(),
   getBatchTodayStats: vi.fn(),
+  bulkDelete: vi.fn(),
   getAllProxies: vi.fn(),
   getAllGroups: vi.fn(),
   probeUpstreamBillingBatch: vi.fn()
@@ -25,6 +27,7 @@ vi.mock('@/api/admin', () => ({
       list: listAccounts,
       listWithEtag,
       getBatchTodayStats,
+      bulkDelete,
       getUpstreamBillingProbeSettings: vi.fn().mockResolvedValue({ enabled: true, interval_minutes: 30 }),
       delete: vi.fn(),
       batchClearError: vi.fn(),
@@ -80,9 +83,10 @@ const DataTableStub = {
 
 const AccountBulkActionsBarStub = {
   props: ['selectedIds'],
-  emits: ['edit-filtered', 'probe-upstream-billing'],
+  emits: ['delete-filtered', 'edit-filtered', 'probe-upstream-billing'],
   template: `
     <div>
+      <button data-test="delete-filtered" @click="$emit('delete-filtered')">delete filtered</button>
       <button data-test="edit-filtered" @click="$emit('edit-filtered')">edit filtered</button>
       <button data-test="probe-upstream-billing" @click="$emit('probe-upstream-billing')">probe</button>
     </div>
@@ -106,8 +110,10 @@ describe('admin AccountsView bulk edit scope', () => {
     listAccounts.mockReset()
     listWithEtag.mockReset()
     getBatchTodayStats.mockReset()
+    bulkDelete.mockReset()
     getAllProxies.mockReset()
     getAllGroups.mockReset()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
     probeUpstreamBillingBatch.mockReset()
 
     listAccounts.mockResolvedValue({
@@ -123,6 +129,11 @@ describe('admin AccountsView bulk edit scope', () => {
       data: null
     })
     getBatchTodayStats.mockResolvedValue({ stats: {} })
+    bulkDelete.mockResolvedValue({
+      success: 3,
+      failed: 0,
+      results: []
+    })
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
     probeUpstreamBillingBatch.mockResolvedValue([])
@@ -172,6 +183,72 @@ describe('admin AccountsView bulk edit scope', () => {
 
     expect(wrapper.get('[data-test="bulk-edit-modal"]').attributes('data-show')).toBe('true')
     expect(wrapper.get('[data-test="bulk-edit-modal"]').attributes('data-target-mode')).toBe('filtered')
+  })
+
+  it('bulk deletes the filtered account scope when no accounts are selected', async () => {
+    listAccounts.mockResolvedValue({
+      items: [],
+      total: 3,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+
+    const wrapper = mount(AccountsView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          TablePageLayout: {
+            template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
+          },
+          DataTable: DataTableStub,
+          Pagination: true,
+          ConfirmDialog: true,
+          AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
+          AccountTableFilters: { template: '<div></div>' },
+          AccountBulkActionsBar: AccountBulkActionsBarStub,
+          AccountActionMenu: true,
+          ImportDataModal: true,
+          ReAuthAccountModal: true,
+          AccountTestModal: true,
+          AccountStatsModal: true,
+          ScheduledTestsPanel: true,
+          SyncFromCrsModal: true,
+          TempUnschedStatusModal: true,
+          ErrorPassthroughRulesModal: true,
+          TLSFingerprintProfilesModal: true,
+          CreateAccountModal: true,
+          EditAccountModal: true,
+          BulkEditAccountModal: BulkEditAccountModalStub,
+          PlatformTypeBadge: true,
+          AccountCapacityCell: true,
+          AccountStatusIndicator: true,
+          AccountTodayStatsCell: true,
+          AccountGroupsCell: true,
+          AccountUsageCell: true,
+          Icon: true
+        }
+      }
+    })
+
+    await flushPromises()
+    await wrapper.get('[data-test="delete-filtered"]').trigger('click')
+    await flushPromises()
+
+    expect(window.confirm).toHaveBeenCalledWith('admin.accounts.bulkDeleteConfirm')
+    expect(bulkDelete).toHaveBeenCalledTimes(1)
+    expect(bulkDelete).toHaveBeenCalledWith({
+      filters: {
+        platform: '',
+        type: '',
+        status: '',
+        group: '',
+        search: '',
+        privacy_mode: '',
+        sort_by: 'name',
+        sort_order: 'asc'
+      }
+    })
   })
 
   it('renders the created_at column by default', async () => {
