@@ -33,6 +33,7 @@ export interface ChannelModelPricing {
   image_input_price: number | null
   image_output_price: number | null
   per_request_price: number | null
+  service_tier_multipliers: Record<string, number> | null
   intervals: PricingInterval[]
 }
 

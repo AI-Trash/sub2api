@@ -24,6 +24,7 @@ export interface PricingFormEntry {
   image_input_price: number | string | null
   image_output_price: number | string | null
   per_request_price: number | string | null
+  service_tier_multipliers: Record<string, number | string> | null
   intervals: IntervalFormEntry[]
 }
 
@@ -47,6 +48,32 @@ export function perTokenToMTok(val: number | null | undefined): number | null {
   if (val === null || val === undefined) return null
   // toPrecision(10) 消除 IEEE 754 浮点乘法精度误差，如 5e-8 * 1e6 = 0.04999...96 → 0.05
   return parseFloat((val * MTOK).toPrecision(10))
+}
+
+export function serviceTierMultipliersToAPI(
+  multipliers: Record<string, number | string> | null | undefined
+): Record<string, number> | null {
+  if (!multipliers) return null
+  const out: Record<string, number> = {}
+  for (const [tier, value] of Object.entries(multipliers)) {
+    const key = tier.trim().toLowerCase()
+    if (!key) continue
+    const num = toNullableNumber(value)
+    if (num !== null) out[key] = num
+  }
+  return Object.keys(out).length > 0 ? out : null
+}
+
+export function serviceTierMultipliersToForm(
+  multipliers: Record<string, number> | null | undefined
+): Record<string, number> | null {
+  if (!multipliers) return null
+  const out: Record<string, number> = {}
+  for (const [tier, value] of Object.entries(multipliers)) {
+    const key = tier.trim().toLowerCase()
+    if (key) out[key] = value
+  }
+  return Object.keys(out).length > 0 ? out : null
 }
 
 export function apiIntervalsToForm(intervals: PricingInterval[]): IntervalFormEntry[] {

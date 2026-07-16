@@ -447,6 +447,7 @@
                   :key="idx"
                   :entry="entry"
                   :platform="section.platform"
+                  :show-service-tier-multipliers="true"
                   @update="updatePricingEntry(sIdx, idx, $event)"
                   @remove="removePricingEntry(sIdx, idx)"
                 />
@@ -632,7 +633,7 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 import { adminAPI } from '@/api/admin'
 import type { Channel, ChannelModelPricing, CreateChannelRequest, UpdateChannelRequest, AccountStatsPricingRule } from '@/api/admin/channels'
 import type { PricingFormEntry } from '@/components/admin/channel/types'
-import { mTokToPerToken, perTokenToMTok, apiIntervalsToForm, formIntervalsToAPI, findModelConflict, validateIntervals } from '@/components/admin/channel/types'
+import { mTokToPerToken, perTokenToMTok, apiIntervalsToForm, formIntervalsToAPI, serviceTierMultipliersToAPI, serviceTierMultipliersToForm, findModelConflict, validateIntervals } from '@/components/admin/channel/types'
 import type { AdminGroup, GroupPlatform } from '@/types'
 import type { Column } from '@/components/common/types'
 import { platformTextClass, platformBadgeLightClass } from '@/utils/platformColors'
@@ -858,6 +859,7 @@ function addPricingEntry(sectionIdx: number) {
     image_input_price: null,
     image_output_price: null,
     per_request_price: null,
+    service_tier_multipliers: null,
     intervals: []
   })
 }
@@ -891,6 +893,7 @@ async function syncLatestModels(sectionIdx: number) {
       image_input_price: null,
       image_output_price: null,
       per_request_price: null,
+      service_tier_multipliers: null,
       intervals: []
     })
     appStore.showSuccess(t('admin.channels.form.syncModelsSuccess', { count: newModels.length }))
@@ -956,6 +959,7 @@ function addRulePricingEntry(sectionIdx: number, ruleIndex: number) {
     image_input_price: null,
     image_output_price: null,
     per_request_price: null,
+    service_tier_multipliers: null,
     intervals: []
   })
 }
@@ -1072,6 +1076,7 @@ function accountStatsRulesToAPI(): AccountStatsPricingRule[] {
             image_input_price: mTokToPerToken(p.image_input_price),
             image_output_price: mTokToPerToken(p.image_output_price),
             per_request_price: p.per_request_price != null && p.per_request_price !== '' ? Number(p.per_request_price) : null,
+            service_tier_multipliers: null,
             intervals: formIntervalsToAPI(p.intervals || [])
           }))
       })
@@ -1113,6 +1118,7 @@ function formToAPI(): { group_ids: number[], model_pricing: ChannelModelPricing[
         image_input_price: mTokToPerToken(entry.image_input_price),
         image_output_price: mTokToPerToken(entry.image_output_price),
         per_request_price: entry.per_request_price != null && entry.per_request_price !== '' ? Number(entry.per_request_price) : null,
+        service_tier_multipliers: serviceTierMultipliersToAPI(entry.service_tier_multipliers),
         intervals: formIntervalsToAPI(entry.intervals || [])
       })
     }
@@ -1202,6 +1208,7 @@ function apiToForm(channel: Channel): PlatformSection[] {
         image_input_price: perTokenToMTok(p.image_input_price),
         image_output_price: perTokenToMTok(p.image_output_price),
         per_request_price: p.per_request_price,
+        service_tier_multipliers: serviceTierMultipliersToForm(p.service_tier_multipliers),
         intervals: apiIntervalsToForm(p.intervals || [])
       } as PricingFormEntry))
 
@@ -1391,6 +1398,7 @@ function distributeRulesToPlatforms(apiRules: AccountStatsPricingRule[]) {
         image_input_price: perTokenToMTok(p.image_input_price),
         image_output_price: perTokenToMTok(p.image_output_price),
         per_request_price: p.per_request_price,
+        service_tier_multipliers: null,
         intervals: apiIntervalsToForm(p.intervals || [])
       } as PricingFormEntry))
     }
@@ -1495,6 +1503,20 @@ async function handleSubmit() {
           (!entry.intervals || entry.intervals.length === 0)) {
         appStore.showError(t('admin.channels.form.perRequestPriceRequired'))
         return
+      }
+    }
+  }
+
+  for (const section of form.platforms.filter(s => s.enabled)) {
+    for (const entry of section.model_pricing) {
+      const multipliers = serviceTierMultipliersToAPI(entry.service_tier_multipliers)
+      if (!multipliers) continue
+      for (const [tier, multiplier] of Object.entries(multipliers)) {
+        if (multiplier < 0) {
+          appStore.showError(`${entry.models.join(', ')} ${tier} service tier 倍率不能为负数`)
+          activeTab.value = section.platform
+          return
+        }
       }
     }
   }
