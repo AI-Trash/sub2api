@@ -224,7 +224,6 @@ func TestBulkUpdateAcceptsFilterTargetRequest(t *testing.T) {
 	require.Equal(t, float64(0), resp["code"])
 }
 
-
 func TestBulkDeleteAcceptsFilterTargetRequest(t *testing.T) {
 	adminSvc := newStubAdminService()
 	router := setupAccountMixedChannelRouter(adminSvc)
@@ -255,4 +254,23 @@ func TestBulkDeleteAcceptsFilterTargetRequest(t *testing.T) {
 	require.Equal(t, "12", adminSvc.lastBulkDelete.filters.Group)
 	require.Equal(t, "blocked", adminSvc.lastBulkDelete.filters.PrivacyMode)
 	require.Equal(t, "bulk-target", adminSvc.lastBulkDelete.filters.Search)
+}
+
+func TestBulkUpdateAcceptsDedicatedUpstreamBillingProbeSetting(t *testing.T) {
+	adminSvc := newStubAdminService()
+	router := setupAccountMixedChannelRouter(adminSvc)
+
+	body, _ := json.Marshal(map[string]any{
+		"account_ids":                    []int64{1, 2},
+		"upstream_billing_probe_enabled": false,
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/bulk-update", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotNil(t, adminSvc.lastBulkUpdateAccountInput)
+	require.NotNil(t, adminSvc.lastBulkUpdateAccountInput.ProbeEnabled)
+	require.False(t, *adminSvc.lastBulkUpdateAccountInput.ProbeEnabled)
 }
